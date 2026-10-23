@@ -5,15 +5,16 @@ Por qué existe: qué sitios pueden embeber el widget se controla con el header
 embebe. El front es un hosting estático con un header fijo para todos los tenants, así que
 no puede distinguir "digital-zur" de "ariel-zamora". Esta ruta SÍ puede: responde un HTML
 mínimo con el `frame-ancestors` de ESE tenant (su `origenes_permitidos`), y adentro carga el
-front con `?tenant=<id>&embed=1`. El front, a su vez, solo permite ser embebido por esta API
-(ver docs/adr/0003-multitenancy-y-aislamiento.md).
+front con `?tenant=<id>&embed=1`. El front, a su vez, acepta como ancestros esta API y los sitios de
+los tenants: el navegador comprueba toda la cadena de iframes (ver docs/adr/0003-multitenancy-y-aislamiento.md).
 """
 
 import os
 from html import escape
+from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from app.api.dependencias import resolver_tenant
@@ -51,8 +52,11 @@ def _origen_del_front() -> str:
 
 
 @router.get("/embed/{tenant_id}", response_class=HTMLResponse)
-def embed(tenant_id: str) -> HTMLResponse:
-    """HTML con el iframe del front y el frame-ancestors del tenant."""
+def embed(tenant_id: str, header: Annotated[int, Query(ge=0, le=1)] = 1) -> HTMLResponse:
+    """HTML con el iframe del front y el frame-ancestors del tenant.
+
+    `?header=0` oculta el encabezado del chat, para el sitio que ya pone el suyo (nombre, estado, cerrar).
+    """
     tenant = resolver_tenant(tenant_id)
     front = _origen_del_front()
 
@@ -64,7 +68,7 @@ def embed(tenant_id: str) -> HTMLResponse:
     )
 
     # tenant_id ya está validado ([a-z0-9-]); quote/escape son defensa extra al armar HTML y URL.
-    src = f"{front}/?tenant={quote(tenant.tenant_id)}&embed=1"
+    src = f"{front}/?tenant={quote(tenant.tenant_id)}&embed=1" + ("" if header else "&header=0")
     html = _PAGINA.format(src=escape(src, quote=True), titulo=escape(f"Asistente de {tenant.nombre}", quote=True))
 
     return HTMLResponse(

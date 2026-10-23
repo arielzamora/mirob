@@ -16,6 +16,7 @@ Ver el [README principal](../README.md) para levantar la API.
 |---|---|
 | `?tenant=digital-zur` | Tenant inicial. Si falta, se usa el primero de la lista. |
 | `&embed=1` | **Vista pública**: sin pestañas, sin selector de tenant ni de modo, sin detalle de auditoría. Modo `foundry` por defecto. Sirve para el `<iframe>` del sitio y como enlace directo. |
+| `&header=0` | En `embed`, oculta la barra superior (el sitio que lo embebe pone la suya). |
 | `&mode=raw\|humanized\|foundry` | Modo inicial (en `embed`, por defecto `foundry`; si no, `raw`). |
 
 Ejemplo de widget para un sitio institucional:

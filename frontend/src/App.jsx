@@ -17,8 +17,10 @@ const TABS = [
 //   &embed=1              vista pública: sin pestañas, selector de tenant ni modo.
 //                         Sirve para el <iframe> del sitio y también como enlace directo.
 //   &mode=raw|humanized|foundry   modo inicial (en embed, por defecto "foundry")
+//   &header=0             en embed, sin la barra superior (el sitio que lo embebe pone la suya)
 const parametros = new URLSearchParams(window.location.search);
 const EMBED = parametros.get("embed") === "1";
+const SIN_BARRA = EMBED && parametros.get("header") === "0";
 const TENANT_DE_LA_URL = parametros.get("tenant") ?? "";
 const modoPedido = parametros.get("mode");
 const MODO_INICIAL = MODOS.some((modo) => modo.id === modoPedido)
@@ -94,6 +96,7 @@ function App() {
 
   return (
     <div className={`app ${EMBED ? "app--embed" : ""}`}>
+      {!SIN_BARRA && (
       <header className="app-header">
         {EMBED ? (
           <span className="app-header__brand">{tenantNombre || "Asistente"}</span>
@@ -128,6 +131,7 @@ function App() {
           </>
         )}
       </header>
+      )}
 
       {errorTenants && tenantId && !EMBED && (
         <p className="app-aviso app-aviso--error" role="alert">

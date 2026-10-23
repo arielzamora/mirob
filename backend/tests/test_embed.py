@@ -95,3 +95,19 @@ def test_sin_url_del_front_valida_responde_503(
 
     assert respuesta.status_code == 503
     assert VAR_FRONTEND_URL in respuesta.json()["detail"]
+
+
+def test_header_cero_le_pasa_al_front_que_oculte_su_encabezado(embed_client: TestClient) -> None:
+    html = embed_client.get("/embed/uno?header=0").text
+
+    assert f'src="{FRONT}/?tenant=uno&amp;embed=1&amp;header=0"' in html
+
+
+def test_por_defecto_el_encabezado_se_muestra(embed_client: TestClient) -> None:
+    assert "header=0" not in embed_client.get("/embed/uno").text
+    assert "header=0" not in embed_client.get("/embed/uno?header=1").text
+
+
+@pytest.mark.parametrize("valor", ["2", "-1", "abc"])
+def test_un_header_invalido_responde_422(embed_client: TestClient, valor: str) -> None:
+    assert embed_client.get(f"/embed/uno?header={valor}").status_code == 422
