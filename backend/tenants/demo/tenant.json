@@ -1,6 +1,6 @@
 {
   "nombre": "Demo (perfil ficticio)",
-  "umbral_similitud": 0.20,
+  "umbral_similitud": 0.10,
   "origenes_permitidos": [],
   "usa_sample": true,
   "habilitado": true

@@ -1,0 +1,7 @@
+{
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' __API_ORIGIN__; base-uri 'none'; form-action 'none'; frame-ancestors __API_ORIGIN__",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer"
+  }
+}

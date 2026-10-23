@@ -1,0 +1,8 @@
+# Dependabot propone un pull request cuando sale una versión nueva de una action usada en los workflows.
+# Los workflows referencian las actions por versión mayor (v4, v5...); este archivo las mantiene al día.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

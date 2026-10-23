@@ -32,7 +32,8 @@ backend/
       humanize.py    # modo "humanized" (aperturas y limpieza de formato)
       generate.py    # modo "foundry": umbral, armado del prompt y llamada al LLM
     api/chat.py      # POST /api/v1/chat (tenant_id, message, mode)
-    api/routes.py    # POST /admin/content (recibe tenant_id)
+    api/routes.py    # POST /admin/content y POST /admin/reindex (reciben tenant_id)
+    api/health.py    # GET /health (probes del contenedor y smoke test)
     api/tenants.py   # GET /api/v1/tenants (id y nombre de los tenants habilitados)
     api/embed.py     # GET /embed/{tenant_id}: página para el iframe, con frame-ancestors del tenant
     finops.py        # rate limit por IP, tope diario de tokens y el decorador del generador
@@ -51,6 +52,7 @@ backend/
   tests/             # pytest
 frontend/            # React + Vite: chat y pantalla de carga
 docs/adr/            # decisiones de arquitectura
+infra/               # Bicep: Container Apps, Azure Files, Static Web Apps (ver abajo)
 ```
 
 Flujo de `POST /api/v1/chat`: `tenant_id` + `message` → vectorización TF-IDF → coseno contra la matriz **de ese tenant** → top 3 chunks → respuesta según `mode`.
@@ -75,7 +77,7 @@ Desarrollado y probado con Python 3.14 y Node 24 (las dependencias están fijada
 cd backend
 python -m venv .venv
 # Windows (PowerShell): .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # solo para correr la API: requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -124,8 +126,9 @@ curl -X POST http://localhost:8000/admin/content -H "X-API-Key: <tu-clave>" -F "
 2. Si el mejor score es **menor al umbral del tenant** (`umbral_similitud`), **no se llama a Foundry**: se responde con un mensaje fijo ("No encontré información sobre esa consulta...") y el gasto es 0 tokens.
 3. Si lo supera, al LLM viajan como máximo 3 chunks (solo los que superan el umbral), delimitados entre `<contexto>` y `</contexto>` y tratados como datos; más los últimos 6 mensajes del historial, recortados.
 4. El LLM usa el `prompt.md` del tenant como instrucciones y está limitado a `max_output_tokens=250`.
+   - Cada `prompt.md` fija una **frase exacta** para "no tengo esa información" y prohíbe suponer capacidades, sectores o casos que no figuren de forma explícita. Probado con el LLM real: una pregunta sobre un sector que el contenido no menciona ("¿hacen sistemas para hospitales?") responde esa frase en lugar de decir que sí.
 
-El umbral por defecto es 0.20 porque TF-IDF da scores más bajos que un modelo de embeddings (preguntas bien respondidas suelen quedar entre 0.25 y 0.55). Ajustalo por tenant en su `tenant.json`.
+El umbral por defecto es 0.10 porque TF-IDF da scores más bajos que un modelo de embeddings (con las stopwords en español filtradas, las preguntas bien respondidas quedan entre ~0.15 y 0.80 y las fuera de tema en ~0). Calibralo por tenant en su `tenant.json` con preguntas reales de su contenido.
 
 Errores del modo foundry: sin configurar → 503; falla del modelo (credenciales, red, cuota) → 502 con un mensaje genérico. Los modos `raw` y `humanized`, y las consultas bajo el umbral, no necesitan Foundry.
 
@@ -139,7 +142,7 @@ Cada cliente es un *tenant* con su propio contenido, índice y system prompt. Un
 cada uno tiene su índice, armado solo con los archivos de su carpeta.
 
 - **Configuración (versionada):** `backend/tenants/<tenant_id>/tenant.json` (nombre, umbral de similitud, orígenes permitidos, `habilitado`) y `prompt.md` (system prompt propio).
-- **Contenido (ignorado por git):** `backend/data/tenants/<tenant_id>/*.md|txt`. Se carga con `POST /admin/content` o copiando los archivos y reiniciando la API.
+- **Contenido (ignorado por git):** `backend/data/tenants/<tenant_id>/*.md|txt`. Se carga con `POST /admin/content`, o copiando los archivos y llamando a `POST /admin/reindex` (header `X-API-Key`; opcionalmente `tenant_id`, si no reindexa todos).
 - **Tenant `demo`:** lee el perfil ficticio de `backend/data/sample/` (solo lectura). Un clon recién bajado responde con `tenant_id: "demo"`.
 - **Sin respaldo silencioso:** un tenant sin contenido responde 503; nunca usa el de otro.
 - Opcionales en `tenant.json`: `origenes_permitidos` (sitios que pueden embeber el widget) y `tope_diario_tokens` (tope propio del tenant).
@@ -163,10 +166,17 @@ Detalle y motivos en [ADR 0003](docs/adr/0003-multitenancy-y-aislamiento.md) y [
 - **Tope diario de tokens:** 200.000 por día UTC en total (y `tope_diario_tokens` opcional por tenant). Al alcanzarlo, solo el modo foundry responde 429.
 - **Límite conocido:** los contadores viven en memoria del proceso (por réplica). Con varias réplicas el tope real es mayor.
 
+## Docker, infraestructura y CI/CD
+
+- `backend/Dockerfile` arma la imagen de la API (Python 3.14, usuario sin privilegios). El contenido real **no** entra a la imagen (`backend/.dockerignore`); en Azure se monta desde Azure Files en `/app/data/tenants`. Para probarla en local: `docker build -t mirob-backend backend` (requiere Docker Desktop corriendo).
+- `infra/main.bicep` define Container Apps (el backend, escala a cero, una sola réplica), Storage con Azure Files, Static Web Apps (el front), Log Analytics con tope diario y el rol *Foundry User* para la identidad del backend. El recurso de Foundry y su modelo se crearon a mano y solo se **referencian**. Validación local: `az bicep build --file infra/main.bicep`.
+- `.github/workflows/ci.yml` corre tests, lint y build del front, validación del Bicep y build de la imagen (en cada pull request). `deploy.yml` lo reutiliza y, **solo si pasa**, publica la imagen en GHCR, despliega el Bicep, publica el front en Static Web Apps y corre un smoke test. Se autentica en Azure con OIDC, sin claves. Preparación y operación: [infra/README.md](infra/README.md).
+
 ## Tests
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt   # incluye pytest
 python -m pytest -q
 ```
 

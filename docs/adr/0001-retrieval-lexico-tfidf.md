@@ -1,6 +1,6 @@
 # ADR 0001 — Retrieval léxico (TF-IDF) como línea base antes de embeddings semánticos
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada (enmendada el 2026-10-23: stopwords en español, ver abajo)
 - **Contexto de etapa:** Etapa 1
 
 ## Contexto y problema
@@ -26,8 +26,15 @@ Se usa la **opción 1** en la Etapa 1.
 - El coseno se implementa a mano (`app/rag/retrieve.py`): producto punto dividido por
   las normas, con protección contra división por cero. Un test lo compara contra
   `sklearn.metrics.pairwise.cosine_similarity` para confirmar que coincide.
-- No se filtran *stopwords*: la lista integrada de scikit-learn es solo en inglés y el
-  contenido está en español.
+- ~~No se filtran *stopwords*~~ (decisión original: la lista integrada de scikit-learn es solo
+  en inglés y el contenido está en español). **Enmienda:** se filtran con una lista propia en
+  español (`app/rag/stopwords_es.py`) y el vectorizer corre con `strip_accents="unicode"`.
+  Motivo medido: sin filtrar, una pregunta fuera de tema compartía palabras vacías ("es", "la",
+  "cuál") con cualquier chunk y daba ~0,22, igual que preguntas buenas con pocas palabras en
+  común, así que ningún umbral separaba "sí tengo la respuesta" de "no la tengo" y el bot
+  gastaba tokens del LLM de más. Con el filtro, las preguntas fuera de tema dan 0,000 y las
+  buenas desde 0,15 en el contenido de digital-zur. Los tests exactos de top-1 del perfil
+  ficticio siguen pasando sin cambios.
 - Se descarta la opción 3: el objetivo del proyecto es entender cada paso, y esas
   librerías lo esconden.
 - La opción 2 **no se descarta**: se suma en la Etapa 2 **sin reemplazar** al TF-IDF,
@@ -52,9 +59,13 @@ Se usa la **opción 1** en la Etapa 1.
   compartía "dónde" y "actualmente" con él; se corrigió ajustando la redacción del chunk,
   no el algoritmo.
 - Una pregunta fuera de tema igual devuelve **un** chunk como top-1, pero con score bajo
-  (la pregunta *"¿Cuál es la capital de Mongolia?"* da ≈ 0,23 sobre el perfil ficticio).
-  El score es la única señal para decir "no tengo esa información"; hoy el umbral
-  (0,25) solo lo usa el modo `humanized`.
+  (la pregunta *"¿Cuál es la capital de Mongolia?"* daba ≈ 0,23 sobre el perfil ficticio
+  antes de filtrar stopwords; ahora da 0,000). El score es la señal para decir "no tengo esa
+  información": cada tenant tiene su umbral (0,10 por defecto) y en modo `foundry` por debajo
+  de él no se llama al LLM.
+- Sigue sin entender sinónimos: una pregunta con palabras distintas a las del contenido
+  ("contactar" vs "contacto") puede dar 0. Se mitiga redactando las preguntas del contenido con
+  varias formulaciones.
 
 ## Seguimiento
 

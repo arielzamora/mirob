@@ -1,0 +1,21 @@
+# Lo que NO entra a la imagen Docker (el contexto de build es backend/).
+# Sobre todo: nada de contenido real ni de secretos.
+.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.env
+.env.*
+
+# Contenido real de los tenants (ignorado por git): en producción vive en Azure Files, no en la imagen.
+# Solo viaja el perfil ficticio del tenant "demo".
+data/*
+!data/sample
+
+# No hacen falta para correr la API.
+tests/
+labs/
+example_usage.py
+requirements-dev.txt
+Dockerfile
+.dockerignore

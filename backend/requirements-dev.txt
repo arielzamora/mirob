@@ -1,0 +1,3 @@
+# Dependencias para desarrollo y CI (incluye las de runtime). La imagen Docker usa solo requirements.txt.
+-r requirements.txt
+pytest==9.1.1

@@ -54,8 +54,8 @@ def main(tenant_id: str = "demo") -> None:
         "¿Cómo manejás el estrés en momentos de alta presión?",
         "¿Para qué sirve MiRob?",
         # Fuera de tema a propósito: nada en el contenido habla de esto, así que
-        # el score del top-1 queda bajo (~0.18) y muestra la rama de baja
-        # confianza de humanizar() (umbral: UMBRAL_BAJA_CONFIANZA = 0.25).
+        # el score del top-1 queda en ~0 (las stopwords están filtradas) y muestra la rama de baja
+        # confianza de humanizar() (umbral: UMBRAL_BAJA_CONFIANZA = 0.15).
         "¿Cuál es la capital de Mongolia?",
     ]
 

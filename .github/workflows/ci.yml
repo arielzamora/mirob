@@ -1,0 +1,81 @@
+# CI: valida que todo compile y pase los tests. No toca Azure ni necesita ningún secreto.
+#
+# Se ejecuta de dos formas:
+#   - en cada pull request (para revisar los cambios antes de mezclarlos), y
+#   - llamado desde deploy.yml (`workflow_call`): el deploy a producción arranca SOLO si este
+#     workflow pasó completo. Así hay una única definición de "qué significa que pasó".
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+# Mínimo privilegio: el token del workflow solo puede leer el repositorio.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+      - name: Tests
+        # Los tests usan siempre el perfil ficticio y carpetas temporales: sin red, sin Azure, sin tokens.
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend (lint y build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # npm ci instala EXACTAMENTE lo de package-lock.json (como un restore con lock file estricto).
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  infra:
+    name: Infraestructura (Bicep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar y validar el Bicep
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep lint --file infra/main.bicep
+          az bicep build-params --file infra/main.bicepparam --stdout > /dev/null
+
+  imagen:
+    name: Imagen Docker (build y arranque)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir la imagen (sin publicarla)
+        run: docker build -t mirob-backend:ci backend
+      - name: Arrancar el contenedor y consultar /health
+        run: |
+          docker run -d --name mirob -p 8000:8000 mirob-backend:ci
+          for i in $(seq 1 15); do
+            curl -sf http://127.0.0.1:8000/health && exit 0
+            sleep 2
+          done
+          docker logs mirob
+          exit 1

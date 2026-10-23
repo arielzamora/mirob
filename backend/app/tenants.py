@@ -30,9 +30,11 @@ _TENANT_ID_VALIDO = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 LARGO_MAXIMO_TENANT_ID = 40
 
 # Umbral por defecto de similitud coseno para TF-IDF. Los scores reales de TF-IDF
-# en preguntas bien respondidas están entre 0.25 y 0.55 (medido sobre el perfil
-# ficticio); 0.65 cortaría casi todo. Cada tenant puede ajustar el suyo.
-UMBRAL_SIMILITUD_POR_DEFECTO = 0.20
+# en preguntas bien respondidas están entre 0.15 y 0.80 (medido sobre el perfil
+# ficticio y el contenido de digital-zur, con stopwords filtradas); 0.65 cortaría casi todo.
+# Con las stopwords filtradas, una pregunta fuera de tema suele dar 0.000. Cada tenant puede
+# ajustar el suyo: calibralo con preguntas reales de ese contenido.
+UMBRAL_SIMILITUD_POR_DEFECTO = 0.10
 
 
 class TenantInvalido(ValueError):

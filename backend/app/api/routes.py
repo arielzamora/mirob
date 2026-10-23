@@ -1,4 +1,4 @@
-"""Endpoint de administración: POST /admin/content, por tenant.
+"""Endpoints de administración, por tenant: POST /admin/content y POST /admin/reindex.
 
 El chat vive en app/api/chat.py. Esta capa solo orquesta: valida el request,
 resuelve el tenant, guarda el archivo y llama a reindex.py.
@@ -11,6 +11,7 @@ from app.api.dependencias import limitar_admin, resolver_tenant
 from app.api.security import exigir_api_key
 from app.api.uploads import TAMANO_MAXIMO_BYTES, validar_contenido, validar_nombre_archivo
 from app.reindex import carpeta_de_contenido, reindex
+from app.tenants import listar_tenants
 
 router = APIRouter()
 
@@ -79,4 +80,37 @@ async def admin_content(
         filename=nombre,
         total_chunks=len(state.corpus),
         total_files=int(state.corpus["source"].nunique()),
+    )
+
+
+# --- POST /admin/reindex ---------------------------------------------------
+
+
+class AdminReindexResponse(BaseModel):
+    # tenant_id -> cantidad de chunks indexados (0 = el tenant no tiene contenido).
+    chunks_por_tenant: dict[str, int]
+
+
+@router.post(
+    "/admin/reindex",
+    response_model=AdminReindexResponse,
+    dependencies=[Depends(limitar_admin), Depends(exigir_api_key)],
+)
+def admin_reindex(tenant_id: str | None = Form(default=None)) -> AdminReindexResponse:
+    """Reconstruye el índice de un tenant (o de todos si no se indica) desde sus archivos.
+
+    Para cuando el contenido se cambió por fuera de la API (por ejemplo, subiendo archivos
+    directo al share de Azure Files): el índice vive en memoria y solo se arma al arrancar o
+    al subir un archivo por /admin/content, así que sin esto habría que reiniciar el backend.
+
+    Es `def` y no `async def` a propósito: reindexar es trabajo de CPU y disco; FastAPI corre
+    los `def` en un hilo aparte y no bloquea al resto de los pedidos.
+    """
+    if tenant_id is not None:
+        tenants = [resolver_tenant(tenant_id)]
+    else:
+        tenants = listar_tenants()
+
+    return AdminReindexResponse(
+        chunks_por_tenant={t.tenant_id: len(reindex(t.tenant_id).corpus) for t in tenants}
     )

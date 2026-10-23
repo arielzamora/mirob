@@ -62,7 +62,9 @@ _APERTURAS_BAJA_CONFIANZA = [
     "Esto no me cierra del todo como respuesta, pero es lo más relacionado que encontré: ",
 ]
 
-UMBRAL_BAJA_CONFIANZA = 0.25
+# Se bajó de 0.25 a 0.15 al filtrar stopwords en el TF-IDF: los scores de preguntas bien respondidas
+# quedaron algo más bajos (una pregunta correcta del perfil ficticio da 0.249).
+UMBRAL_BAJA_CONFIANZA = 0.15
 
 
 def _quitar_acentos(texto: str) -> str:

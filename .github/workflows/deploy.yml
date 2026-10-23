@@ -1,0 +1,198 @@
+# Deploy a producción: tests -> imagen -> infraestructura (Bicep) -> front -> smoke test.
+#
+# Cada etapa solo arranca si la anterior terminó bien (`needs`): si los tests fallan, no se publica
+# ninguna imagen ni se toca Azure. Se ejecuta en cada push a main, o a mano desde la pestaña Actions.
+#
+# Autenticación en Azure SIN claves: OIDC federado. GitHub emite un token firmado de corta vida y
+# Azure lo acepta porque configuramos esa confianza (ver infra/README.md). No hay ningún secreto de Azure
+# guardado en el repositorio.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Un solo deploy a la vez: si llega otro push mientras uno corre, espera (no se cancela a la mitad).
+concurrency:
+  group: deploy-produccion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-mirob
+
+jobs:
+  # 1) Los mismos checks que en un pull request (ci.yml). Si algo falla, termina acá.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  # 2) Construye la imagen del backend y la publica en GHCR con el SHA del commit como tag.
+  imagen:
+    name: Publicar imagen
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # solo este job puede publicar paquetes
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      repositorio: ${{ steps.meta.outputs.repositorio }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Calcular nombre y tag de la imagen
+        id: meta
+        run: |
+          # GHCR exige minúsculas en el nombre.
+          propietario="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "repositorio=ghcr.io/${propietario}/mirob-backend" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ steps.meta.outputs.repositorio }}:${{ steps.meta.outputs.tag }}
+
+  # 3) Despliega la infraestructura con Bicep, ya apuntando a la imagen nueva.
+  infraestructura:
+    name: Desplegar infraestructura (Bicep)
+    needs: imagen
+    runs-on: ubuntu-latest
+    # El environment "production" permite sumar aprobación manual y es el que Azure reconoce en OIDC.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # necesario para pedir el token OIDC
+    outputs:
+      api_url: ${{ steps.bicep.outputs.api_url }}
+      swa_name: ${{ steps.bicep.outputs.swa_name }}
+      swa_url: ${{ steps.bicep.outputs.swa_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Desplegar
+        id: bicep
+        env:
+          # main.bicepparam lee estas variables (ver infra/main.bicepparam).
+          IMAGE_TAG: ${{ needs.imagen.outputs.tag }}
+          MIROB_ADMIN_API_KEY: ${{ secrets.MIROB_ADMIN_API_KEY }}
+          FOUNDRY_REASONING_EFFORT: ${{ vars.FOUNDRY_REASONING_EFFORT }}
+        run: |
+          # what-if: muestra qué cambiaría (queda en el log para auditar).
+          az deployment group what-if --resource-group "$RESOURCE_GROUP" --parameters infra/main.bicepparam
+
+          salidas=$(az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --parameters infra/main.bicepparam \
+            --query properties.outputs --output json)
+
+          echo "api_url=$(jq -r .apiUrl.value <<< "$salidas")" >> "$GITHUB_OUTPUT"
+          echo "swa_name=$(jq -r .staticWebAppName.value <<< "$salidas")" >> "$GITHUB_OUTPUT"
+          echo "swa_url=$(jq -r .staticWebAppUrl.value <<< "$salidas")" >> "$GITHUB_OUTPUT"
+
+  # 4) Compila el front apuntando a la API recién desplegada y lo publica en Static Web Apps.
+  front:
+    name: Publicar front
+    needs: infraestructura
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Compilar el front
+        working-directory: frontend
+        env:
+          # La URL de la API se conoce recién después del deploy de infraestructura.
+          VITE_API_BASE_URL: ${{ needs.infraestructura.outputs.api_url }}
+        run: |
+          npm ci
+          npm run build
+      - name: Generar staticwebapp.config.json (CSP con la URL de la API)
+        env:
+          API_URL: ${{ needs.infraestructura.outputs.api_url }}
+        run: sed "s|__API_ORIGIN__|${API_URL}|g" frontend/staticwebapp.config.template.json > frontend/dist/staticwebapp.config.json
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Obtener el token de publicación de Static Web Apps
+        env:
+          SWA_NAME: ${{ needs.infraestructura.outputs.swa_name }}
+        run: |
+          token=$(az staticwebapp secrets list --name "$SWA_NAME" --resource-group "$RESOURCE_GROUP" --query properties.apiKey --output tsv)
+          # Que el token nunca aparezca en los logs.
+          echo "::add-mask::$token"
+          echo "SWA_TOKEN=$token" >> "$GITHUB_ENV"
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ env.SWA_TOKEN }}
+          action: upload
+          app_location: frontend/dist
+          skip_app_build: true
+          skip_api_build: true
+
+  # 5) Smoke test: verifica que lo desplegado responde. Usa solo el tenant demo en modo raw (0 tokens).
+  smoke:
+    name: Smoke test
+    needs: [infraestructura, front]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Esperar a la API (puede estar arrancando desde cero)
+        env:
+          API_URL: ${{ needs.infraestructura.outputs.api_url }}
+        run: |
+          for i in $(seq 1 18); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/health")" = "200" ]; then
+              echo "API arriba"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "La API no respondió /health a tiempo"
+          exit 1
+      - name: Chequear la API
+        env:
+          API_URL: ${{ needs.infraestructura.outputs.api_url }}
+        run: |
+          # Lista de tenants con los esperados.
+          curl -sf "$API_URL/api/v1/tenants" | jq -e 'map(.tenant_id) | index("demo") != null'
+
+          # Chat real en modo raw sobre el tenant demo: pasa por el retrieval completo y no gasta tokens.
+          curl -sf -X POST "$API_URL/api/v1/chat" \
+            -H 'Content-Type: application/json' \
+            -d '{"tenant_id":"demo","message":"¿Qué idiomas hablás?","mode":"raw"}' \
+            | jq -e '.chunks[0].source == "personal.md" and .llm_called == false'
+
+          # La página de embed manda un frame-ancestors (por tenant).
+          curl -sfI "$API_URL/embed/digital-zur" | grep -i '^content-security-policy:.*frame-ancestors'
+      - name: Chequear el front
+        env:
+          SWA_URL: ${{ needs.infraestructura.outputs.swa_url }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sfI "$SWA_URL" | grep -i '^content-security-policy:.*frame-ancestors'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "El front no respondió con su CSP a tiempo"
+          exit 1

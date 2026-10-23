@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
 from app.api.embed import router as embed_router
+from app.api.health import router as health_router
 from app.api.routes import router
 from app.api.tenants import router as tenants_router
 from app.env import cargar_env
@@ -34,6 +35,7 @@ def crear_app(origenes: list[str]) -> FastAPI:
     app.include_router(chat_router)
     app.include_router(tenants_router)
     app.include_router(embed_router)
+    app.include_router(health_router)
     app.include_router(router)
     return app
 

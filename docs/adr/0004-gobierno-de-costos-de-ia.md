@@ -19,9 +19,14 @@ Capas ordenadas de la más barata a la más cara:
    1000 caracteres (validado con Pydantic → 422).
 2. **Umbral de similitud por tenant (0 tokens):** si el mejor chunk no llega a
    `umbral_similitud`, no se llama al LLM: mensaje fijo de "no encontré información". El
-   umbral por defecto es **0.20**, no 0.65: con TF-IDF las preguntas bien respondidas dan
-   scores de 0.25 a 0.55 (medido sobre el perfil ficticio), y 0.65 cortaría casi todo. Con
-   embeddings semánticos (Parte 2.1) se revisa.
+   umbral por defecto es **0.10**, no 0.65: con TF-IDF las preguntas bien respondidas dan
+   scores de 0.15 a 0.80 (medido sobre el perfil ficticio y el contenido de digital-zur), y
+   0.65 cortaría casi todo. Con embeddings semánticos (Parte 2.1) se revisa.
+   - *Enmienda:* la primera versión usaba **0.20** sin filtrar stopwords. Una pregunta fuera de
+     tema ("¿capital de Mongolia?") daba 0.22 y gastaba ~430 tokens; las buenas daban desde 0.21,
+     así que ningún umbral separaba los dos casos. Al filtrar stopwords en español (ADR 0001) las
+     fuera de tema dan 0.000 y las buenas desde 0.146 (digital-zur): un umbral de 0.10 las separa.
+     Cada tenant debe recalibrar el suyo con preguntas reales de su contenido.
 3. **Contexto mínimo:** al LLM van como máximo 3 chunks (solo los que superan el umbral, de
    hasta 1500 caracteres) y los últimos 6 mensajes del historial (500 caracteres cada uno).
 4. **Modelo chico y salida acotada:** un modelo chico en deployment **GlobalStandard** (pago por

@@ -52,7 +52,7 @@ def test_raw_devuelve_el_chunk_tal_cual_y_el_detalle_de_la_busqueda(client: Test
 def test_raw_informa_el_umbral_del_tenant_y_si_se_superó(client: TestClient) -> None:
     cuerpo = _chat(client, "¿Qué idiomas hablás?").json()
 
-    assert cuerpo["threshold"] == 0.20  # umbral de backend/tenants/demo/tenant.json
+    assert cuerpo["threshold"] == 0.10  # umbral de backend/tenants/demo/tenant.json
     assert cuerpo["below_threshold"] is False
 
 
