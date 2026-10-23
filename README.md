@@ -18,7 +18,7 @@ sobre mi experiencia, proyectos y forma de trabajar a partir de contenido que ca
 |---|---|
 | `raw` (por defecto) | El chunk recuperado, tal cual. |
 | `humanized` | Solo la respuesta (`R:`) del chunk, con una apertura conversacional. Es cosmético: no genera contenido nuevo ni cambia el ranking. |
-| `foundry` | *Próximamente (Etapa 2).* Respuesta generada con Azure AI Foundry a partir de los chunks recuperados. |
+| `foundry` | Respuesta redactada por Azure AI Foundry (gpt-4o-mini) a partir de los chunks recuperados; solo se llama si la similitud supera el umbral del tenant. |
 
 ## Arquitectura
 
@@ -30,21 +30,31 @@ backend/
       embeddings.py  # TfidfVectorizer ajustado sobre el corpus
       retrieve.py    # coseno a mano con numpy + top-k
       humanize.py    # modo "humanized" (aperturas y limpieza de formato)
-    api/routes.py    # POST /chat y POST /admin/content
+      generate.py    # modo "foundry": umbral, armado del prompt y llamada al LLM
+    api/chat.py      # POST /api/v1/chat (tenant_id, message, mode)
+    api/routes.py    # POST /admin/content (recibe tenant_id)
+    api/tenants.py   # GET /api/v1/tenants (id y nombre de los tenants habilitados)
+    api/embed.py     # GET /embed/{tenant_id}: página para el iframe, con frame-ancestors del tenant
+    finops.py        # rate limit por IP, tope diario de tokens y el decorador del generador
+    ratelimit.py     # limitador de ventana deslizante en memoria
+    origenes.py      # validación de orígenes y CORS
+    tenants.py       # registro de tenants: validación del id y configuración
     chunk_format.py  # extrae header y respuesta de un chunk
-    reindex.py       # índice vigente en memoria y reindexado
+    reindex.py       # un índice en memoria por tenant y su reindexado
     main.py          # app FastAPI + CORS
-    foundry/         # único que usa el SDK de Azure (esqueleto, Etapa 2)
+    foundry/         # único que usa el SDK de Azure: client.py, chat.py, generador.py (+ tipos.py sin SDK)
   labs/              # un script por módulo del curso AI-103 (lab01_smoke.py)
-  data/              # TU contenido real (ignorado por git)
-    sample/          # perfil ficticio versionado (respaldo y tests)
+  tenants/           # config versionada de cada tenant: tenant.json + prompt.md
+  data/              # contenido real (ignorado por git)
+    tenants/<id>/    # los .md/.txt de cada tenant
+    sample/          # perfil ficticio versionado (tenant "demo" y tests)
   tests/             # pytest
 frontend/            # React + Vite: chat y pantalla de carga
 docs/adr/            # decisiones de arquitectura
 ```
 
-Flujo de `POST /chat`: pregunta → vectorización TF-IDF → coseno contra la matriz del corpus → top-1 → respuesta.
-Flujo de `POST /admin/content`: archivo `.md`/`.txt` → se guarda en `backend/data/` → se reindexa todo el corpus.
+Flujo de `POST /api/v1/chat`: `tenant_id` + `message` → vectorización TF-IDF → coseno contra la matriz **de ese tenant** → top 3 chunks → respuesta según `mode`.
+Flujo de `POST /admin/content`: `tenant_id` + archivo `.md`/`.txt` → se guarda en `backend/data/tenants/<tenant_id>/` → se reindexa solo ese tenant.
 
 **Chunking:** los `.md` se cortan por headers de nivel 2 (`##`); los `.txt`, por párrafo (línea en blanco).
 
@@ -72,8 +82,8 @@ python -m uvicorn app.main:app --reload --port 8000
 La documentación interactiva queda en <http://localhost:8000/docs>. Prueba rápida:
 
 ```bash
-curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
-  -d '{"pregunta": "Que idiomas hablas?"}'
+curl -X POST http://localhost:8000/api/v1/chat -H "Content-Type: application/json" \
+  -d '{"tenant_id": "demo", "message": "Que idiomas hablas?"}'
 ```
 
 ### Frontend
@@ -84,7 +94,8 @@ npm install
 npm run dev
 ```
 
-Abre <http://localhost:5173>. El front espera la API en `http://localhost:8000`.
+Abre <http://localhost:5173>. El front espera la API en `http://localhost:8000` (se cambia con `VITE_API_BASE_URL`).
+Tiene selector de tenant y switch de modo (Raw / Humanizado / Foundry); con `?tenant=<id>&embed=1` muestra la vista pública para embeber en un iframe (ver [frontend/README.md](frontend/README.md)).
 
 ### Habilitar la carga de contenido (admin)
 
@@ -94,13 +105,43 @@ Abre <http://localhost:5173>. El front espera la API en `http://localhost:8000`.
    (queda solo en memoria, se pierde al recargar). Por línea de comandos:
 
 ```bash
-curl -X POST http://localhost:8000/admin/content -H "X-API-Key: <tu-clave>" -F "file=@mi-contenido.md"
+curl -X POST http://localhost:8000/admin/content -H "X-API-Key: <tu-clave>" -F "tenant_id=ariel-zamora" -F "file=@mi-contenido.md"
 ```
 
-### Qué contenido se indexa
+### Chat: `POST /api/v1/chat`
 
-- Si `backend/data/` tiene archivos `.md`/`.txt`, se usan **esos** (tu contenido real; la carpeta está ignorada por git).
-- Si no, se usa el perfil ficticio de `backend/data/sample/`. Por eso un clon recién bajado ya responde.
+```json
+{ "tenant_id": "demo", "message": "¿Qué idiomas hablás?", "mode": "raw", "conversation_history": [] }
+```
+
+- `message`: obligatorio, hasta 350 caracteres. `conversation_history` es opcional (`[{role: "user"|"assistant", content}]`, hasta 20 mensajes).
+- `mode`: `raw` (el chunk top-1 tal cual, **sin cortar por umbral**, para auditar el retrieval), `humanized` (top-1 con apertura conversacional, sin LLM) o `foundry` (respuesta redactada por el LLM, ver abajo).
+- La respuesta incluye `answer`, `chunks` (top 3 con `score`), `top_score`, `threshold` (del tenant), `below_threshold`, `llm_called`, `usage` (tokens; en 0 si no se llamó al LLM) y, cuando hubo LLM, `latency_ms` y `deployment`.
+
+**Modo `foundry` y ahorro de tokens:**
+
+1. Se busca localmente (TF-IDF + coseno) solo en los chunks del tenant.
+2. Si el mejor score es **menor al umbral del tenant** (`umbral_similitud`), **no se llama a Foundry**: se responde con un mensaje fijo ("No encontré información sobre esa consulta...") y el gasto es 0 tokens.
+3. Si lo supera, al LLM viajan como máximo 3 chunks (solo los que superan el umbral), delimitados entre `<contexto>` y `</contexto>` y tratados como datos; más los últimos 6 mensajes del historial, recortados.
+4. El LLM usa el `prompt.md` del tenant como instrucciones y está limitado a `max_output_tokens=250`.
+
+El umbral por defecto es 0.20 porque TF-IDF da scores más bajos que un modelo de embeddings (preguntas bien respondidas suelen quedar entre 0.25 y 0.55). Ajustalo por tenant en su `tenant.json`.
+
+Errores del modo foundry: sin configurar → 503; falla del modelo (credenciales, red, cuota) → 502 con un mensaje genérico. Los modos `raw` y `humanized`, y las consultas bajo el umbral, no necesitan Foundry.
+
+**Configurar Foundry** (Entra ID, sin API keys): `az login` con el rol "Azure AI User" sobre el proyecto, y en `backend/.env` las variables `FOUNDRY_ENDPOINT` y `FOUNDRY_CHAT_DEPLOYMENT` (el deployment de gpt-4o-mini). Para probar la conexión sola: `python -m labs.lab01_smoke`.
+
+### Tenants (multitenant)
+
+Cada cliente es un *tenant* con su propio contenido, índice y system prompt. Un tenant jamás ve los chunks de otro:
+cada uno tiene su índice, armado solo con los archivos de su carpeta.
+
+- **Configuración (versionada):** `backend/tenants/<tenant_id>/tenant.json` (nombre, umbral de similitud, orígenes permitidos, `habilitado`) y `prompt.md` (system prompt propio).
+- **Contenido (ignorado por git):** `backend/data/tenants/<tenant_id>/*.md|txt`. Se carga con `POST /admin/content` o copiando los archivos y reiniciando la API.
+- **Tenant `demo`:** lee el perfil ficticio de `backend/data/sample/` (solo lectura). Un clon recién bajado responde con `tenant_id: "demo"`.
+- **Sin respaldo silencioso:** un tenant sin contenido responde 503; nunca usa el de otro.
+- Opcionales en `tenant.json`: `origenes_permitidos` (sitios que pueden embeber el widget) y `tope_diario_tokens` (tope propio del tenant).
+- `tenant_id` es obligatorio en `/api/v1/chat` y `/admin/content`: minúsculas, números y guiones. Inexistente o deshabilitado → 404; formato inválido → 422.
 
 Formato esperado en cada archivo (los `.md` con un `##` por tema):
 
@@ -110,6 +151,16 @@ P: ¿Qué idiomas hablás?
 R: Español nativo e inglés B2.
 ```
 
+## Salida a producción: CORS, embebido y límites
+
+Detalle y motivos en [ADR 0003](docs/adr/0003-multitenancy-y-aislamiento.md) y [ADR 0004](docs/adr/0004-gobierno-de-costos-de-ia.md). Variables en `backend/.env.example`.
+
+- **CORS:** lista cerrada. Siempre `localhost:5173/3000`, más los orígenes del front en `MIROB_CORS_ORIGINS`. Es global: quien llama a la API es el front, no el sitio que lo embebe.
+- **Embeber el widget:** el sitio del cliente usa `https://<api>/embed/<tenant_id>` (no el front directo). Esa página manda `Content-Security-Policy: frame-ancestors` con los `origenes_permitidos` de **ese** tenant (`'none'` si no tiene) y carga el front en modo público. Requiere `MIROB_FRONTEND_URL`. El hosting del front debe mandar `frame-ancestors` solo con el origen de la API.
+- **Límites por IP** (429 con `Retry-After`): 20 pedidos de chat por minuto, 30 llamadas al LLM por hora, 10 pedidos al admin por minuto. Detrás de un proxy, definí `MIROB_TRUST_PROXY=1`.
+- **Tope diario de tokens:** 200.000 por día UTC en total (y `tope_diario_tokens` opcional por tenant). Al alcanzarlo, solo el modo foundry responde 429.
+- **Límite conocido:** los contadores viven en memoria del proceso (por réplica). Con varias réplicas el tope real es mayor.
+
 ## Tests
 
 ```bash
@@ -117,9 +168,13 @@ cd backend
 python -m pytest -q
 ```
 
-- Usan **siempre** el perfil ficticio (`data/sample/`), nunca contenido real, así que dan el mismo resultado en cualquier máquina.
+- Usan **siempre** el perfil ficticio (`data/sample/`) o carpetas temporales, nunca contenido real, así que dan el mismo resultado en cualquier máquina.
 - `test_retrieve.py` afirma resultados exactos (*esta pregunta debe traer este chunk como top-1*) y compara el coseno a mano con el de scikit-learn.
+- `test_chat.py` prueba el contrato de `/api/v1/chat` (modos, validación, límite de 350 caracteres, corte por umbral con un LLM falso).
+- `test_origenes.py`, `test_ratelimit.py`, `test_finops.py`, `test_limites_api.py` y `test_embed.py` prueban CORS, los límites (con relojes falsos) y el `frame-ancestors` por tenant.
+- `test_generate.py` y `test_foundry_generador.py` prueban el prompt, el umbral y la capa Foundry con clientes falsos: ningún test usa red ni gasta tokens.
 - `test_api.py` llama a la API en memoria con `TestClient` (sin abrir puertos); la subida de archivos escribe en una carpeta temporal. Cubre la autenticación del admin y los intentos de path traversal.
+- `test_tenants.py` prueba la validación del `tenant_id`, las configuraciones versionadas y el aislamiento entre tenants.
 - `test_uploads.py` prueba la validación de nombres y contenido de los archivos subidos.
 
 ## Limitaciones conocidas
