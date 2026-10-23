@@ -1,10 +1,14 @@
-"""Reindexado del corpus: reconstruye los chunks y reajusta el TF-IDF.
+"""Reindexado del corpus por tenant: reconstruye los chunks y reajusta el TF-IDF.
 
 Consume la capa /rag (ingest.py, embeddings.py) sin modificarla. Como en
-esta etapa no hay base de datos (ver CLAUDE.md), el índice vigente
-(corpus + vectorizer + matriz) se guarda en una variable a nivel de
-módulo — vive en memoria del proceso y se pierde si se reinicia el
-servidor, lo cual está bien para esta etapa.
+esta etapa no hay base de datos (ver CLAUDE.md), el índice vigente de CADA
+tenant (corpus + vectorizer + matriz) vive en un diccionario a nivel de
+módulo — en memoria del proceso, se pierde si se reinicia el servidor, lo
+cual está bien para esta etapa.
+
+Aislamiento: cada tenant tiene su propio IndexState, construido SOLO con los
+archivos de su carpeta. Nunca se arma una matriz compartida entre tenants, así
+que el retrieval de uno no puede ver chunks de otro.
 """
 
 from dataclasses import dataclass
@@ -16,65 +20,59 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from app.rag.embeddings import fit_vectorizer
 from app.rag.ingest import build_corpus
+from app.tenants import TenantConfig, obtener_tenant
 
 # backend/app/reindex.py -> .parent (app/) -> .parent (backend/) -> data/
-# Es el contenido REAL de Ariel: la carpeta está en el .gitignore, así que
-# nunca se versiona (en .NET sería como un appsettings.Production.json
-# que queda fuera del repo).
+# Es el contenido REAL: la carpeta está en el .gitignore, así que nunca se
+# versiona (en .NET sería como un appsettings.Production.json fuera del repo).
 CONTENT_DIR = Path(__file__).parent.parent / "data"
 
-# Perfil ficticio que SÍ se versiona. Sirve para que un clon del repo
-# funcione sin contenido real y para que los tests usen datos estables.
+# Perfil ficticio que SÍ se versiona. Lo usa el tenant "demo" y los tests, para
+# que un clon del repo funcione sin contenido real y los resultados sean estables.
 SAMPLE_DIR = CONTENT_DIR / "sample"
-
-# Extensiones que ingest.py sabe leer (mismas que en build_corpus).
-_EXTENSIONES_CONTENIDO = (".md", ".txt")
 
 
 @dataclass
 class IndexState:
-    """El índice vigente: el corpus de chunks y su vectorización TF-IDF."""
+    """El índice vigente de un tenant: el corpus de chunks y su vectorización TF-IDF."""
 
     corpus: pd.DataFrame
     vectorizer: TfidfVectorizer
     matrix: csr_matrix
 
 
-# None hasta el primer reindex() (o el primer get_state(), que reindexa
-# automáticamente si todavía no hay nada cargado).
-_state: IndexState | None = None
+# tenant_id -> índice. Se completa en el primer reindex() de cada tenant (o en el
+# primer get_state(), que reindexa solo si ese tenant todavía no tiene nada).
+_states: dict[str, IndexState] = {}
 
 
-def _tiene_contenido(carpeta: Path) -> bool:
-    """True si `carpeta` existe y tiene al menos un .md/.txt directamente adentro."""
-    # is_dir() evita explotar si la carpeta no existe (en un clon nuevo, data/ no está).
-    # any(...) corta apenas encuentra uno, como Enumerable.Any(...) en C#.
-    # glob("*") no es recursivo: la subcarpeta sample/ no cuenta como contenido real.
-    return carpeta.is_dir() and any(
-        p.suffix.lower() in _EXTENSIONES_CONTENIDO for p in carpeta.glob("*")
-    )
+def carpeta_de_contenido(tenant: TenantConfig) -> Path:
+    """Carpeta con los .md/.txt del tenant: data/tenants/<tenant_id>/.
 
-
-def resolver_carpeta_contenido() -> Path:
-    """Elige la carpeta a indexar: el contenido real si existe, si no el perfil de ejemplo."""
-    # Orden de preferencia: data/ (real) primero, data/sample/ (ficticio) como respaldo.
-    return CONTENT_DIR if _tiene_contenido(CONTENT_DIR) else SAMPLE_DIR
-
-
-def reindex(content_dir: Path | str | None = None) -> IndexState:
-    """Reconstruye el corpus y el índice TF-IDF a partir de `content_dir`.
-
-    Se llama al arrancar la API y cada vez que se sube contenido nuevo
-    vía POST /admin/content. Si no se pasa carpeta (None), usa
-    resolver_carpeta_contenido(); si se pasa una explícita (por ejemplo
-    en un test), se respeta tal cual y NO hay respaldo silencioso.
+    Sin respaldo silencioso: si el tenant no tiene contenido, no se le presta el de
+    otro (principio de MiRob: nunca inventar). Solo un tenant que declara
+    `usa_sample` en su tenant.json (el "demo") lee el perfil ficticio.
     """
-    global _state
+    if tenant.usa_sample:
+        return SAMPLE_DIR
+    # tenant_id ya pasó validar_tenant_id (solo [a-z0-9-]), así que esta ruta no puede escapar de data/.
+    return CONTENT_DIR / "tenants" / tenant.tenant_id
+
+
+def reindex(tenant_id: str, content_dir: Path | str | None = None) -> IndexState:
+    """Reconstruye el corpus y el índice TF-IDF del tenant a partir de `content_dir`.
+
+    Se llama cada vez que se sube contenido nuevo vía POST /admin/content. Si no
+    se pasa carpeta (None), usa carpeta_de_contenido(); si se pasa una explícita
+    (por ejemplo en un test), se respeta tal cual.
+    """
     # None significa "usá el valor por defecto". No se puede poner la llamada
     # a la función directo como valor por defecto del parámetro porque Python
     # lo evaluaría una sola vez al importar el módulo (a diferencia de C#,
     # donde un default tiene que ser constante en tiempo de compilación).
-    carpeta = resolver_carpeta_contenido() if content_dir is None else content_dir
+    carpeta = carpeta_de_contenido(obtener_tenant(tenant_id)) if content_dir is None else content_dir
+    # Si la carpeta todavía no existe (tenant nuevo sin contenido), glob("*") no
+    # devuelve nada: el tenant queda con corpus vacío y /chat responde 503.
     corpus = build_corpus(carpeta)
     if corpus.empty:
         # TfidfVectorizer().fit_transform() sobre una lista vacía tira
@@ -94,12 +92,12 @@ def reindex(content_dir: Path | str | None = None) -> IndexState:
             # iloc[0:0] deja un DataFrame sin filas pero con las mismas columnas.
             corpus = corpus.iloc[0:0]
             vectorizer, matrix = TfidfVectorizer(), csr_matrix((0, 0))
-    _state = IndexState(corpus=corpus, vectorizer=vectorizer, matrix=matrix)
-    return _state
+    _states[tenant_id] = IndexState(corpus=corpus, vectorizer=vectorizer, matrix=matrix)
+    return _states[tenant_id]
 
 
-def get_state() -> IndexState:
-    """Devuelve el índice vigente, reindexando en el momento si todavía no existe."""
-    if _state is None:
-        return reindex()
-    return _state
+def get_state(tenant_id: str) -> IndexState:
+    """Devuelve el índice del tenant, reindexando en el momento si todavía no existe."""
+    if tenant_id not in _states:
+        return reindex(tenant_id)
+    return _states[tenant_id]

@@ -11,8 +11,8 @@ Antes de correrlo:
   2. `az login` en esta máquina, con el rol "Azure AI User" sobre el proyecto.
   3. Copiá backend/.env.example a backend/.env y completá los valores.
 
-Qué tenés que completar: las TRES funciones de app/foundry/client.py y la función
-`generar` de app/foundry/chat.py. Hacelo en este orden, corriendo el lab entre pasos.
+Usa las TRES funciones de app/foundry/client.py y `generar` de app/foundry/chat.py,
+que ya están implementadas (la API usa las mismas a través de FoundryGenerador).
 """
 
 from app.foundry.chat import generar
@@ -26,16 +26,16 @@ def main() -> None:
     print(f"Endpoint: {settings.endpoint}")
     print(f"Deployment de chat: {settings.chat_deployment}")
 
-    # Paso 1 — Credencial (completar en client.py).
+    # Paso 1 — Credencial (client.py).
     credencial = crear_credencial()
 
-    # Paso 2 — Cliente del proyecto (completar en client.py). Va en un `with` para
+    # Paso 2 — Cliente del proyecto (client.py). Va en un `with` para
     # que se cierre solo al terminar, como un `using` en C#.
     with crear_cliente_proyecto(settings, credencial) as proyecto:
-        # Paso 3 — Cliente OpenAI autenticado (completar en client.py).
+        # Paso 3 — Cliente OpenAI autenticado (client.py).
         cliente = obtener_cliente_openai(proyecto)
 
-        # Paso 4 — Primera llamada al modelo (completar `generar` en chat.py).
+        # Paso 4 — Primera llamada al modelo (`generar` en chat.py).
         resultado = generar(
             cliente,
             settings,

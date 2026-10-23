@@ -1,31 +1,22 @@
 """Adaptador genérico de chat: instrucciones + mensaje -> texto, tokens y latencia.
 
-No sabe NADA de MiRob (ni de reclutadores, ni de chunks, ni del system prompt de
-"asistente de Ariel"): eso vive en el dominio y se construirá en la Etapa 2.2.
-Este módulo solo sabe hablar con el modelo y medir la llamada.
-
-ESTADO: esqueleto. El resultado (ChatResult) y la firma están definidos; la
-llamada real la completás vos en el lab 2.
+No sabe NADA de MiRob (ni de tenants, ni de chunks, ni de system prompts): eso
+vive en el dominio. Este módulo solo sabe hablar con el modelo y medir la llamada.
 """
 
-from dataclasses import dataclass
+import time
 
 from openai import OpenAI
 
 from app.foundry.config import FoundrySettings
+from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult
 
+# Segundos máximos de espera por llamada. Sin esto, un modelo colgado dejaría
+# el request del chat esperando minutos (el default del SDK es de 10 minutos).
+TIMEOUT_SEGUNDOS = 30.0
 
-# frozen=True: el resultado es inmutable, como un `record` de C#.
-@dataclass(frozen=True)
-class ChatResult:
-    """Lo que devuelve una llamada al modelo de chat."""
-
-    texto: str  # lo que respondió el modelo
-    tokens_entrada: int  # tokens del prompt (instrucciones + mensaje)
-    tokens_salida: int  # tokens generados
-    tokens_total: int  # suma de ambos; es lo que se factura
-    latencia_ms: float  # de ida y vuelta, medida del lado nuestro
-    deployment: str  # con qué deployment se respondió
+# Baja a propósito: queremos respuestas fieles al contexto, no creativas.
+TEMPERATURA = 0.2
 
 
 def generar(
@@ -33,24 +24,40 @@ def generar(
     settings: FoundrySettings,
     instrucciones: str,
     mensaje: str,
+    max_tokens_salida: int = MAX_TOKENS_SALIDA,
 ) -> ChatResult:
     """Llama al modelo con la API Responses y devuelve texto, tokens y latencia.
 
     Datos verificados contra openai 2.54.0:
       - cliente.responses.create(model=..., instructions=..., input=...) acepta,
-        entre otros, `max_output_tokens`, `temperature`, `store` y `stream`.
-      - `model` recibe el nombre de TU DEPLOYMENT (settings.chat_deployment),
-        igual que usan los labs de MS Learn con MODEL_DEPLOYMENT_NAME.
+        entre otros, `max_output_tokens`, `temperature`, `store`, `stream` y `timeout`.
+      - `model` recibe el nombre de TU DEPLOYMENT (settings.chat_deployment), por
+        ejemplo el de gpt-4o-mini.
       - El objeto de respuesta tiene `.output_text` (el texto) y `.usage` con
         input_tokens, output_tokens y total_tokens. OJO: `.usage` puede ser None,
-        así que hay que contemplarlo (usar 0 si falta).
-
-    Pasos sugeridos:
-      1. Anotar el tiempo de inicio con time.perf_counter().
-      2. Llamar a cliente.responses.create(...) con el deployment, las
-         instrucciones (rol del sistema) y el mensaje (input).
-      3. Calcular la latencia en milisegundos con el tiempo de fin.
-      4. Armar y devolver un ChatResult con los campos de arriba.
+        así que se usa 0 si falta.
     """
-    # TODO(Ariel): implementá los 4 pasos de arriba (lab 2).
-    raise NotImplementedError("lab02: llamar a cliente.responses.create(...) y armar el ChatResult")
+    # perf_counter es un reloj monotónico de alta resolución, el equivalente a
+    # Stopwatch en .NET (no usar time.time() para medir duraciones).
+    inicio = time.perf_counter()
+    respuesta = cliente.responses.create(
+        model=settings.chat_deployment,
+        instructions=instrucciones,
+        input=mensaje,
+        max_output_tokens=max_tokens_salida,
+        temperature=TEMPERATURA,
+        # store=False: no guardamos la conversación del lado de Azure (privacidad).
+        store=False,
+        timeout=TIMEOUT_SEGUNDOS,
+    )
+    latencia_ms = (time.perf_counter() - inicio) * 1000
+
+    uso = respuesta.usage
+    return ChatResult(
+        texto=respuesta.output_text,
+        tokens_entrada=uso.input_tokens if uso else 0,
+        tokens_salida=uso.output_tokens if uso else 0,
+        tokens_total=uso.total_tokens if uso else 0,
+        latencia_ms=latencia_ms,
+        deployment=settings.chat_deployment,
+    )

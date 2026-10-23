@@ -1,0 +1,6 @@
+{
+  "nombre": "Chocolatería",
+  "umbral_similitud": 0.20,
+  "origenes_permitidos": [],
+  "habilitado": false
+}

@@ -1,8 +1,11 @@
 """Ejemplos de uso de la capa /rag, para probar a mano desde la terminal.
 
-Correr desde backend/ con el venv activado:
+Correr desde backend/ con el venv activado (el tenant es opcional, por defecto "demo"):
     python example_usage.py
+    python example_usage.py ariel-zamora
 """
+
+import sys
 
 import pandas as pd
 
@@ -12,10 +15,11 @@ from app.rag.humanize import humanizar
 from app.rag.ingest import build_corpus
 from app.rag.retrieve import top_k
 
-# La carpeta se decide en un único lugar (reindex.py): data/ si tiene tu
-# contenido real, o data/sample/ (perfil ficticio) si no. Así el script y
-# la API nunca se desincronizan.
-from app.reindex import resolver_carpeta_contenido
+# La carpeta se decide en un único lugar (reindex.py): data/tenants/<tenant>/ para
+# un tenant con contenido real, o data/sample/ (perfil ficticio) para "demo". Así
+# el script y la API nunca se desincronizan.
+from app.reindex import carpeta_de_contenido
+from app.tenants import obtener_tenant
 
 
 def mostrar_resultado(pregunta: str, row: pd.Series, modo: str) -> None:
@@ -36,9 +40,9 @@ def mostrar_resultado(pregunta: str, row: pd.Series, modo: str) -> None:
         raise ValueError(f"Modo no soportado: {modo}")
 
 
-def main() -> None:
-    # Paso 1 — Ingesta: lee toda la carpeta de contenido y arma un chunk por fila del DataFrame.
-    corpus = build_corpus(resolver_carpeta_contenido())
+def main(tenant_id: str = "demo") -> None:
+    # Paso 1 — Ingesta: lee toda la carpeta de contenido del tenant y arma un chunk por fila del DataFrame.
+    corpus = build_corpus(carpeta_de_contenido(obtener_tenant(tenant_id)))
     print(f"Corpus: {len(corpus)} chunks de {corpus['source'].nunique()} archivo(s)\n")
     print(corpus[["chunk_id", "source"]])
 
@@ -71,4 +75,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # sys.argv[1] es el primer argumento de la línea de comandos (como args[0] en C#).
+    main(*sys.argv[1:2])

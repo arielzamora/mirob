@@ -1,81 +1,18 @@
-"""Endpoints HTTP de MiRob (Etapa 1): POST /chat y POST /admin/content.
+"""Endpoint de administración: POST /admin/content, por tenant.
 
-Esta capa solo orquesta: valida el request, llama a /rag (retrieve.py,
-humanize.py) y a reindex.py, y arma la respuesta HTTP. No hay lógica de
-retrieval ni de vectorización acá — eso vive en app/rag y no se toca.
+El chat vive en app/api/chat.py. Esta capa solo orquesta: valida el request,
+resuelve el tenant, guarda el archivo y llama a reindex.py.
 """
 
-from typing import Literal
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, field_validator
-
+from app.api.dependencias import limitar_admin, resolver_tenant
 from app.api.security import exigir_api_key
 from app.api.uploads import TAMANO_MAXIMO_BYTES, validar_contenido, validar_nombre_archivo
-from app.chunk_format import extract_answer, extract_header
-from app.rag.humanize import humanizar
-from app.rag.retrieve import top_k
-from app.reindex import CONTENT_DIR, get_state, reindex
+from app.reindex import carpeta_de_contenido, reindex
 
 router = APIRouter()
-
-
-# --- POST /chat ---------------------------------------------------------
-
-
-class ChatRequest(BaseModel):
-    pregunta: str
-    modo: Literal["raw", "humanized"] = "raw"
-
-    @field_validator("pregunta")
-    @classmethod
-    def pregunta_no_vacia(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("pregunta no puede estar vacía")
-        return value
-
-
-class ChatResponse(BaseModel):
-    respuesta: str
-    score: float
-    source: str  # nombre del archivo de origen del chunk (ej. "tecnica.md")
-    seccion: str  # header markdown del chunk, o aviso de que es un .txt sin header
-    modo: Literal["raw", "humanized"]
-
-
-@router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    """Recupera el chunk más relevante para `pregunta` y lo devuelve.
-
-    Sin generación de texto (ver CLAUDE.md): en modo "raw" la respuesta es
-    el chunk tal cual; en "humanized" pasa por humanize.py antes de volver.
-    Todavía no se combinan varios chunks — se usa solo el top-1 (misma
-    decisión que ya se tomó en example_usage.py).
-    """
-    state = get_state()
-
-    if state.corpus.empty:
-        raise HTTPException(
-            status_code=503,
-            detail="No hay contenido cargado todavía. Subí un archivo con POST /admin/content.",
-        )
-
-    resultado = top_k(request.pregunta, state.vectorizer, state.matrix, state.corpus, k=1)
-    row = resultado.iloc[0]
-
-    if request.modo == "humanized":
-        respuesta = humanizar(request.pregunta, extract_answer(row["text"]), row["similarity"])
-    else:
-        respuesta = row["text"]
-
-    return ChatResponse(
-        respuesta=respuesta,
-        score=float(row["similarity"]),
-        source=row["source"],
-        seccion=extract_header(row["text"]),
-        modo=request.modo,
-    )
 
 
 # --- POST /admin/content -------------------------------------------------
@@ -91,10 +28,13 @@ class AdminContentResponse(BaseModel):
     "/admin/content",
     response_model=AdminContentResponse,
     # Exige el header X-API-Key antes de ejecutar la ruta (ver app/api/security.py).
-    dependencies=[Depends(exigir_api_key)],
+    # limitar_admin va primero: frena la fuerza bruta de la clave antes de compararla.
+    dependencies=[Depends(limitar_admin), Depends(exigir_api_key)],
 )
-async def admin_content(file: UploadFile = File(...)) -> AdminContentResponse:
-    """Guarda un .txt/.md en data/ y reindexa el corpus completo.
+async def admin_content(
+    tenant_id: str = Form(...), file: UploadFile = File(...)
+) -> AdminContentResponse:
+    """Guarda un .txt/.md en data/tenants/<tenant_id>/ y reindexa el corpus de ESE tenant.
 
     Requiere el header X-API-Key (solución temporal, ver ADR 0002).
 
@@ -103,6 +43,13 @@ async def admin_content(file: UploadFile = File(...)) -> AdminContentResponse:
     se arma el corpus, sin duplicar esa lógica acá. El corpus de esta
     etapa es chico, así que el costo de rehacerlo entero es insignificante.
     """
+    # 0) El tenant primero: define en qué carpeta se escribe. Es un dato no confiable
+    #    que ya viene validado (formato + lista blanca) cuando resolver_tenant devuelve.
+    tenant = resolver_tenant(tenant_id)
+    # El tenant "demo" lee el perfil ficticio versionado: no se le sube contenido encima.
+    if tenant.usa_sample:
+        raise HTTPException(status_code=403, detail="El tenant demo es de solo lectura.")
+
     # 1) Validar el NOMBRE antes de usarlo para armar cualquier ruta. El nombre lo
     #    manda el cliente, así que es un dato no confiable (ver app/api/uploads.py).
     try:
@@ -122,10 +69,11 @@ async def admin_content(file: UploadFile = File(...)) -> AdminContentResponse:
         se_paso_de_tamano = len(contenido) > TAMANO_MAXIMO_BYTES
         raise HTTPException(status_code=413 if se_paso_de_tamano else 422, detail=str(error)) from error
 
-    CONTENT_DIR.mkdir(parents=True, exist_ok=True)
-    (CONTENT_DIR / nombre).write_bytes(contenido)
+    carpeta = carpeta_de_contenido(tenant)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / nombre).write_bytes(contenido)
 
-    state = reindex()
+    state = reindex(tenant.tenant_id)
 
     return AdminContentResponse(
         filename=nombre,
