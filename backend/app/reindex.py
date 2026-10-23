@@ -11,6 +11,8 @@ archivos de su carpeta. Nunca se arma una matriz compartida entre tenants, así
 que el retrieval de uno no puede ver chunks de otro.
 """
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +34,18 @@ CONTENT_DIR = Path(__file__).parent.parent / "data"
 SAMPLE_DIR = CONTENT_DIR / "sample"
 
 
+# Cada cuántos segundos get_state() revisa si cambiaron los archivos de un tenant. Revisar es leer el
+# nombre, tamaño y fecha de unos pocos archivos, pero en Azure Files cada consulta al share tiene su
+# costo, así que no se hace en cada pedido.
+SEGUNDOS_ENTRE_REVISIONES = 30.0
+
+# Reloj usado para esa espera. Es una variable para poder simular el paso del tiempo en los tests.
+_reloj: Callable[[], float] = time.monotonic
+
+# Extensiones que ingest.py sabe leer (las mismas que build_corpus).
+_EXTENSIONES_CONTENIDO = (".md", ".txt")
+
+
 @dataclass
 class IndexState:
     """El índice vigente de un tenant: el corpus de chunks y su vectorización TF-IDF."""
@@ -39,6 +53,10 @@ class IndexState:
     corpus: pd.DataFrame
     vectorizer: TfidfVectorizer
     matrix: csr_matrix
+    # Para detectar que el contenido cambió sin reiniciar el backend:
+    carpeta: Path  # de dónde se armó el índice
+    firma: tuple  # (nombre, fecha de modificación, tamaño) de cada archivo con el que se armó
+    revisado_en: float  # cuándo se comparó la firma por última vez (según _reloj)
 
 
 # tenant_id -> índice. Se completa en el primer reindex() de cada tenant (o en el
@@ -57,6 +75,15 @@ def carpeta_de_contenido(tenant: TenantConfig) -> Path:
         return SAMPLE_DIR
     # tenant_id ya pasó validar_tenant_id (solo [a-z0-9-]), así que esta ruta no puede escapar de data/.
     return CONTENT_DIR / "tenants" / tenant.tenant_id
+
+
+def _firma_de_carpeta(carpeta: Path) -> tuple:
+    """Huella de los archivos de contenido: si se agrega, borra o modifica uno, la huella cambia."""
+    if not carpeta.is_dir():
+        return ()
+    archivos = [p for p in carpeta.glob("*") if p.suffix.lower() in _EXTENSIONES_CONTENIDO]
+    # stat() devuelve fecha de modificación y tamaño sin leer el archivo.
+    return tuple(sorted((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in archivos))
 
 
 def reindex(tenant_id: str, content_dir: Path | str | None = None) -> IndexState:
@@ -92,17 +119,34 @@ def reindex(tenant_id: str, content_dir: Path | str | None = None) -> IndexState
             # iloc[0:0] deja un DataFrame sin filas pero con las mismas columnas.
             corpus = corpus.iloc[0:0]
             vectorizer, matrix = TfidfVectorizer(), csr_matrix((0, 0))
-    _states[tenant_id] = IndexState(corpus=corpus, vectorizer=vectorizer, matrix=matrix)
+    carpeta = Path(carpeta)
+    _states[tenant_id] = IndexState(
+        corpus=corpus,
+        vectorizer=vectorizer,
+        matrix=matrix,
+        carpeta=carpeta,
+        firma=_firma_de_carpeta(carpeta),
+        revisado_en=_reloj(),
+    )
     return _states[tenant_id]
 
 
 def get_state(tenant_id: str) -> IndexState:
-    """Devuelve el índice del tenant, reindexando en el momento si todavía no existe.
+    """Devuelve el índice del tenant, y lo reconstruye solo si hace falta.
 
-    Si el índice cacheado está VACÍO también se vuelve a armar: así, al subir archivos al share
-    de Azure Files por fuera de la API, el tenant empieza a responder sin reiniciar nada (revisar una
-    carpeta vacía es barato). Un tenant con contenido se queda en memoria hasta un reindex explícito.
+    Se reindexa en estos casos:
+      - todavía no hay índice, o el cacheado está VACÍO (el tenant no tenía contenido);
+      - pasaron SEGUNDOS_ENTRE_REVISIONES y los archivos de su carpeta cambiaron.
+    Así, subir o editar archivos en el share de Azure Files se refleja en menos de un minuto, sin
+    reiniciar el backend ni llamar a /admin/reindex (que sigue existiendo para forzarlo al instante).
     """
-    if tenant_id not in _states or _states[tenant_id].corpus.empty:
+    estado = _states.get(tenant_id)
+    if estado is None or estado.corpus.empty:
         return reindex(tenant_id)
-    return _states[tenant_id]
+
+    ahora = _reloj()
+    if ahora - estado.revisado_en >= SEGUNDOS_ENTRE_REVISIONES:
+        if _firma_de_carpeta(estado.carpeta) != estado.firma:
+            return reindex(tenant_id, estado.carpeta)
+        estado.revisado_en = ahora
+    return estado

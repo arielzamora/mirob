@@ -45,8 +45,23 @@ CORS y `frame-ancestors` responden preguntas distintas:
 Para que sea realmente por tenant, la API sirve `GET /embed/{tenant_id}`: un HTML mínimo con
 `Content-Security-Policy: frame-ancestors <origenes_permitidos del tenant>` (o `'none'` si no
 tiene ninguno) que adentro carga el front con `?tenant=<id>&embed=1`. El sitio del cliente
-embebe **esa** URL. El front, por su parte, debe mandar `frame-ancestors` solo con el origen de
-la API, para que nadie lo embeba directo salteando la política del tenant.
+embebe **esa** URL.
+
+> **Corrección (2026-10-23, descubierta al probar el widget en producción).** La primera versión de
+> este ADR decía que el front debía permitir `frame-ancestors` **solo** a la API. Es incorrecto:
+> los navegadores comprueban `frame-ancestors` contra **todos** los ancestros del iframe, no solo el
+> padre inmediato. El front queda dentro de la página `/embed` (API), que a su vez queda dentro del
+> sitio del cliente; para el front el "abuelo" es el sitio del cliente y, si no está en su lista, se
+> niega a cargar ("ha rechazado la conexión").
+>
+> Decisión corregida: el front acepta como ancestros **la API más la unión de los
+> `origenes_permitidos` de los tenants habilitados**, calculada en el pipeline a partir de los
+> `tenant.json` (ver `deploy.yml`). Consecuencia: la restricción **por tenant** solo se aplica
+> en la página `/embed`; un sitio permitido para un tenant podría cargar el front directo con
+> `?tenant=<otro>`. Es una limitación aceptada: la API de chat es pública de todos modos (ver
+> límites de este ADR) y la restricción busca evitar el embebido ajeno, no ocultar datos.
+> Además, un tenant dinámico cuyos sitios no estén en un `tenant.json` versionado no entra en esa
+> unión hasta el próximo deploy del front.
 
 ## Opciones descartadas
 
@@ -70,6 +85,7 @@ la API, para que nadie lo embeba directo salteando la política del tenant.
 - El `tenant_id` **no es un secreto** ni una credencial: quien conozca el id puede consultar
   ese tenant desde `curl`. Sirve para clientes cuyo contenido es público. Si un tenant llega a
   tener contenido privado, necesita autenticación propia (ver Parte 3.0 del plan).
+- El front acepta como ancestros la unión de los sitios de todos los tenants (ver la corrección arriba).
 - `frame-ancestors` protege contra el embebido en navegadores, no contra llamadas directas a
   la API; para eso están los límites de ADR 0004.
 - `GET /api/v1/tenants` lista los tenants habilitados (id y nombre) a cualquiera.

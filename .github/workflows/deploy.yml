@@ -125,10 +125,17 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Generar staticwebapp.config.json (CSP con la URL de la API)
+      - name: Generar staticwebapp.config.json (CSP con la URL de la API y los sitios permitidos)
         env:
           API_URL: ${{ needs.infraestructura.outputs.api_url }}
-        run: sed "s|__API_ORIGIN__|${API_URL}|g" frontend/staticwebapp.config.template.json > frontend/dist/staticwebapp.config.json
+        run: |
+          # frame-ancestors se comprueba contra TODOS los ancestros del iframe, no solo el padre: el front
+          # va dentro de la página /embed de la API, que a su vez va dentro del sitio del cliente. Por eso
+          # el front tiene que aceptar la API y también los sitios permitidos de los tenants habilitados.
+          sitios=$(jq -r 'select(.habilitado != false) | .origenes_permitidos[]?' backend/tenants/*/tenant.json | sort -u | tr '\n' ' ')
+          ancestros="${API_URL} ${sitios}"
+          echo "frame-ancestors: ${ancestros}"
+          sed -e "s|__API_ORIGIN__|${API_URL}|g" -e "s|__FRAME_ANCESTORS__|${ancestros}|g" frontend/staticwebapp.config.template.json > frontend/dist/staticwebapp.config.json
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}

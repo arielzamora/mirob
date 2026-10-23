@@ -28,7 +28,7 @@ Ejemplo de widget para un sitio institucional:
 ></iframe>
 ```
 
-> El sitio embebe la URL **de la API** (`/embed/<tenant>`), no el front directo: esa página fija qué sitios pueden embeberla (`origenes_permitidos` del tenant) y carga este front con `?tenant=...&embed=1`. Para que funcione hacen falta tres cosas: el sitio en los `origenes_permitidos` del tenant, el origen de este front en `MIROB_CORS_ORIGINS` de la API, y que el hosting del front mande `Content-Security-Policy: frame-ancestors <origen de la API>`. Ver [ADR 0003](../docs/adr/0003-multitenancy-y-aislamiento.md).
+> El sitio embebe la URL **de la API** (`/embed/<tenant>`), no el front directo: esa página fija qué sitios pueden embeberla (`origenes_permitidos` del tenant) y carga este front con `?tenant=...&embed=1`. Para que funcione hacen falta tres cosas: el sitio en los `origenes_permitidos` del tenant, el origen de este front en `MIROB_CORS_ORIGINS` de la API, y que el hosting del front mande `Content-Security-Policy: frame-ancestors` con la API **y los sitios de los tenants** (el navegador comprueba todos los ancestros del iframe, no solo el padre; el pipeline lo arma solo desde los `tenant.json`). Ver [ADR 0003](../docs/adr/0003-multitenancy-y-aislamiento.md).
 
 ```bash
 npm install
