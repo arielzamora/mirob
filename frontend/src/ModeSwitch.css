@@ -1,0 +1,53 @@
+.mode-switch {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  min-width: 0;
+}
+
+.mode-switch__leyenda {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mode-switch__opcion {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mode-switch__opcion.is-active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* El radio real queda oculto pero accesible; el foco se dibuja en la etiqueta. */
+.mode-switch__opcion input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mode-switch__opcion:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.mode-switch:disabled .mode-switch__opcion {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

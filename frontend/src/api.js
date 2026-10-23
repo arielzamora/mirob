@@ -1,7 +1,10 @@
 // Cliente HTTP mínimo para la API de MiRob. Sin axios ni librerías extra:
-// esta etapa solo necesita dos POST, fetch nativo alcanza.
+// fetch nativo alcanza.
 
-const API_BASE_URL = "http://localhost:8000";
+// En desarrollo apunta a la API local. Para otro entorno se define VITE_API_BASE_URL
+// (Vite lee las variables VITE_* de frontend/.env* al compilar; en .NET sería
+// como una URL base en appsettings.{Environment}.json).
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 function extraerDetalle(data) {
   // FastAPI devuelve `detail` como string (HTTPException) o como una lista
@@ -13,14 +16,42 @@ function extraerDetalle(data) {
   return data?.detail;
 }
 
-export async function postChat(pregunta, modo) {
-  const response = await fetch(`${API_BASE_URL}/chat`, {
+async function leerJson(response) {
+  // Si la API está caída o un proxy responde HTML, response.json() tira; en ese
+  // caso devolvemos null y el llamador muestra su mensaje genérico.
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function getTenants() {
+  const response = await fetch(`${API_BASE_URL}/api/v1/tenants`);
+  const data = await leerJson(response);
+
+  if (!response.ok) {
+    throw new Error(extraerDetalle(data) || "No se pudo cargar la lista de tenants.");
+  }
+
+  return data; // [{ tenant_id, nombre }]
+}
+
+// El límite de 350 caracteres de `message` y el de 1000 por mensaje del historial
+// los valida el backend (422); el front los respeta para no mandar requests inválidos.
+export async function postChat({ tenantId, message, mode, conversationHistory }) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pregunta, modo }),
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      message,
+      mode,
+      conversation_history: conversationHistory,
+    }),
   });
 
-  const data = await response.json();
+  const data = await leerJson(response);
 
   if (!response.ok) {
     throw new Error(extraerDetalle(data) || "Error al consultar el chat.");
@@ -29,10 +60,11 @@ export async function postChat(pregunta, modo) {
   return data;
 }
 
-export async function postAdminContent(file, apiKey) {
+export async function postAdminContent(file, apiKey, tenantId) {
   // multipart/form-data: no seteamos el header Content-Type a mano, el
   // browser arma el boundary correcto solo cuando el body es un FormData.
   const formData = new FormData();
+  formData.append("tenant_id", tenantId);
   formData.append("file", file);
 
   const response = await fetch(`${API_BASE_URL}/admin/content`, {
@@ -43,7 +75,7 @@ export async function postAdminContent(file, apiKey) {
     body: formData,
   });
 
-  const data = await response.json();
+  const data = await leerJson(response);
 
   if (!response.ok) {
     throw new Error(extraerDetalle(data) || "Error al subir el contenido.");

@@ -3,9 +3,9 @@ import "./AdminScreen.css";
 import { postAdminContent } from "./api.js";
 
 // Una sola caja de carga simple (nada de las 3 secciones separadas todavía,
-// eso es Etapa 2). La API key se pide acá y vive SOLO en el estado de React:
+// eso es Etapa 2). Sube al tenant elegido en el selector del header. La API key se pide acá y vive SOLO en el estado de React:
 // no se guarda en localStorage ni en la URL, así se pierde al recargar la página.
-function AdminScreen() {
+function AdminScreen({ tenantId, tenantNombre }) {
   const [archivo, setArchivo] = useState(null);
   const [apiKey, setApiKey] = useState("");
   const [subiendo, setSubiendo] = useState(false);
@@ -21,10 +21,10 @@ function AdminScreen() {
     setResultado(null);
 
     try {
-      const respuesta = await postAdminContent(archivo, apiKey);
+      const respuesta = await postAdminContent(archivo, apiKey, tenantId);
       setResultado({
         tipo: "ok",
-        mensaje: `"${respuesta.filename}" cargado. Corpus reindexado: ${respuesta.total_chunks} chunks de ${respuesta.total_files} archivo(s).`,
+        mensaje: `"${respuesta.filename}" cargado en ${tenantNombre}. Corpus reindexado: ${respuesta.total_chunks} chunks de ${respuesta.total_files} archivo(s).`,
       });
       setArchivo(null);
       evento.target.reset();
@@ -39,8 +39,9 @@ function AdminScreen() {
     <section className="admin-screen" aria-label="Carga de contenido">
       <h1 className="admin-screen__titulo">Cargar contenido</h1>
       <p className="admin-screen__ayuda">
-        Subí un archivo .md o .txt para agregarlo al corpus. Al subirlo se
-        reindexa todo el contenido automáticamente.
+        Subí un archivo .md o .txt para agregarlo al contenido de{" "}
+        <strong>{tenantNombre}</strong>. Al subirlo se reindexa solo el contenido de este
+        tenant; los demás no se tocan.
       </p>
 
       <form className="admin-screen__form" onSubmit={handleSubmit}>
