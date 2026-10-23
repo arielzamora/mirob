@@ -1,6 +1,6 @@
 # ADR 0004 — Gobierno de costos de IA
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada (enmendada el 2026-10-23: cambio de modelo, ver punto 4)
 - **Contexto de etapa:** Etapa 2, salida a producción del MVP (parte de la Parte 2.0 y adelanta lo básico de la 2.5)
 
 ## Contexto y problema
@@ -24,8 +24,17 @@ Capas ordenadas de la más barata a la más cara:
    embeddings semánticos (Parte 2.1) se revisa.
 3. **Contexto mínimo:** al LLM van como máximo 3 chunks (solo los que superan el umbral, de
    hasta 1500 caracteres) y los últimos 6 mensajes del historial (500 caracteres cada uno).
-4. **Modelo chico y salida acotada:** deployment de `gpt-4o-mini`, `max_output_tokens=250`,
-   `temperature=0.2`, timeout de 30 s y `store=False`.
+4. **Modelo chico y salida acotada:** un modelo chico en deployment **GlobalStandard** (pago por
+   token, nunca Provisioned, que cobra por hora), `max_output_tokens=250`, timeout de 30 s y
+   `store=False`.
+   - *Enmienda:* la decisión original era `gpt-4o-mini`, pero está *Deprecated* (retiro 2027-04-14)
+     y una suscripción que nunca lo desplegó no puede crear deployments nuevos (tampoco gpt-4.1-mini
+     ni nano). Se usa **`gpt-5.4-nano`** (alternativa: `gpt-5.4-mini`), GA con retiro el 2027-09-21.
+   - Son modelos de razonamiento: no aceptan `temperature` con razonamiento activo y cuentan los
+     tokens de "pensar" dentro del tope de salida. Por eso `temperature` y `reasoning.effort` son
+     **opcionales** (`FOUNDRY_TEMPERATURE`, `FOUNDRY_REASONING_EFFORT`) y no se envían por defecto.
+     Si el modelo gasta todo el tope pensando y no devuelve texto, el bot responde un mensaje fijo
+     ("No pude redactar una respuesta...") y los tokens gastados igual se cuentan en el tope diario.
 5. **Rate limit por IP** (ventana deslizante, en memoria):
    - Chat: **20 pedidos por minuto** (cualquier modo).
    - LLM: **30 llamadas por hora**. Cuenta solo las llamadas que realmente van al modelo; las
@@ -62,8 +71,9 @@ dominio no cambia, y solo cuentan las llamadas reales al LLM.
 
 **Positivas**
 
-- El peor caso diario está acotado y es conocido: con `gpt-4o-mini` y 200.000 tokens/día el
-  gasto máximo es del orden de centavos de dólar por día.
+- El peor caso diario está acotado y es conocido: con `gpt-5.4-nano` y 200.000 tokens/día el
+  gasto máximo es del orden de centavos de dólar por día (precios de referencia de terceros, a
+  confirmar en la calculadora de Azure).
 - Las consultas fuera de tema no cuestan nada.
 - Todo es configurable sin tocar código y está cubierto por tests con relojes falsos.
 

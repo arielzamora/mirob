@@ -21,6 +21,11 @@ from app.tenants import TenantConfig
 # Mensaje fijo cuando no hay nada suficientemente parecido. Se usa tal cual: no pasa por el LLM.
 MENSAJE_SIN_INFORMACION = "No encontré información sobre esa consulta en la base de datos de {nombre}."
 
+# Mensaje fijo cuando el modelo respondió pero no devolvió texto (por ejemplo, un modelo de
+# razonamiento que gastó todo el tope de salida pensando). Es distinto del anterior a propósito:
+# aquí SÍ había información, pero no se pudo redactar la respuesta.
+MENSAJE_RESPUESTA_VACIA = "No pude redactar una respuesta en este momento. Probá reformular la pregunta."
+
 # Máximo de chunks que viajan al LLM como contexto (más chunks = más tokens de entrada).
 MAX_CHUNKS_CONTEXTO = 3
 
@@ -136,8 +141,8 @@ def generar_respuesta(
     resultado_llm = generador.generar(tenant.system_prompt, mensaje, MAX_TOKENS_SALIDA)
 
     return RespuestaGenerada(
-        # Si el modelo devolvió vacío (p. ej. se cortó), mejor el mensaje fijo que una burbuja en blanco.
-        texto=resultado_llm.texto.strip() or sin_informacion,
+        # Si el modelo devolvió vacío (p. ej. se cortó), mejor un mensaje fijo que una burbuja en blanco.
+        texto=resultado_llm.texto.strip() or MENSAJE_RESPUESTA_VACIA,
         llm_invocado=True,
         tokens_entrada=resultado_llm.tokens_entrada,
         tokens_salida=resultado_llm.tokens_salida,

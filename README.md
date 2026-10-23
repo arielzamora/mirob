@@ -18,7 +18,7 @@ sobre mi experiencia, proyectos y forma de trabajar a partir de contenido que ca
 |---|---|
 | `raw` (por defecto) | El chunk recuperado, tal cual. |
 | `humanized` | Solo la respuesta (`R:`) del chunk, con una apertura conversacional. Es cosmético: no genera contenido nuevo ni cambia el ranking. |
-| `foundry` | Respuesta redactada por Azure AI Foundry (gpt-4o-mini) a partir de los chunks recuperados; solo se llama si la similitud supera el umbral del tenant. |
+| `foundry` | Respuesta redactada por un modelo chico de Azure AI Foundry (gpt-5.4-nano o similar) a partir de los chunks recuperados; solo se llama si la similitud supera el umbral del tenant. |
 
 ## Arquitectura
 
@@ -129,7 +129,9 @@ El umbral por defecto es 0.20 porque TF-IDF da scores más bajos que un modelo d
 
 Errores del modo foundry: sin configurar → 503; falla del modelo (credenciales, red, cuota) → 502 con un mensaje genérico. Los modos `raw` y `humanized`, y las consultas bajo el umbral, no necesitan Foundry.
 
-**Configurar Foundry** (Entra ID, sin API keys): `az login` con el rol "Azure AI User" sobre el proyecto, y en `backend/.env` las variables `FOUNDRY_ENDPOINT` y `FOUNDRY_CHAT_DEPLOYMENT` (el deployment de gpt-4o-mini). Para probar la conexión sola: `python -m labs.lab01_smoke`.
+**Configurar Foundry** (Entra ID, sin API keys): `az login` con el rol **Foundry User** (antes "Azure AI User") sobre el proyecto, y en `backend/.env` las variables `FOUNDRY_ENDPOINT` y `FOUNDRY_CHAT_DEPLOYMENT` (el nombre de tu deployment). Para probar la conexión sola: `python -m labs.lab01_smoke`.
+
+**Qué modelo usar:** gpt-4o-mini y gpt-4.1-mini figuran como *Deprecated* y una suscripción nueva no puede desplegarlos. Usá `gpt-5.4-nano` (o `gpt-5.4-mini`) con deployment **GlobalStandard** (pago por token, nunca Provisioned). Son modelos de razonamiento: no se les envía `temperature` ni `reasoning` salvo que definas `FOUNDRY_TEMPERATURE` / `FOUNDRY_REASONING_EFFORT` (ver `.env.example`). Si las respuestas vuelven vacías, el modelo gastó el tope de 250 tokens pensando: bajá el esfuerzo (por ejemplo `minimal`). El calendario de retiros de cada modelo está en la [documentación de Microsoft](https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule).
 
 ### Tenants (multitenant)
 

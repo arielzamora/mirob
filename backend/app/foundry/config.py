@@ -17,6 +17,12 @@ from app.env import cargar_env
 VAR_ENDPOINT = "FOUNDRY_ENDPOINT"
 VAR_CHAT = "FOUNDRY_CHAT_DEPLOYMENT"
 VAR_EMBEDDINGS = "FOUNDRY_EMBEDDINGS_DEPLOYMENT"
+VAR_REASONING_EFFORT = "FOUNDRY_REASONING_EFFORT"
+VAR_TEMPERATURE = "FOUNDRY_TEMPERATURE"
+
+# Valores de `reasoning.effort` que acepta el SDK de openai instalado. Qué valores admite cada
+# MODELO lo decide Azure: si el deployment rechaza uno, el smoke test lo muestra con un 400.
+ESFUERZOS_DE_RAZONAMIENTO = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
 class FoundryConfigError(ValueError):
@@ -40,6 +46,11 @@ class FoundrySettings:
     chat_deployment: str
     # Deployment de embeddings. Opcional: todavía no se usa (Etapa 2.1).
     embeddings_deployment: str | None = None
+    # Los modelos de razonamiento (familia gpt-5) cuentan los tokens de "pensar" dentro del tope de
+    # salida y no aceptan `temperature` con razonamiento activo. Por eso ninguno de estos dos se
+    # manda a menos que lo configures: None = no se envía y el modelo usa su valor por defecto.
+    reasoning_effort: str | None = None
+    temperature: float | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Self:
@@ -65,6 +76,8 @@ class FoundrySettings:
         chat_deployment = _leer(env, VAR_CHAT)
         # `or None`: un string vacío es "falso" en Python, así que queda en None.
         embeddings_deployment = _leer(env, VAR_EMBEDDINGS) or None
+        reasoning_effort = _leer(env, VAR_REASONING_EFFORT).lower() or None
+        temperature = _leer_temperatura(env)
 
         # Juntamos TODAS las obligatorias que faltan, para avisar de una sola vez
         # (mejor que arreglar una, volver a correr y que falte la siguiente).
@@ -83,12 +96,20 @@ class FoundrySettings:
         if not endpoint.startswith("https://"):
             raise FoundryConfigError(f"{VAR_ENDPOINT} debe empezar con https:// (recibido: {endpoint!r}).")
 
+        if reasoning_effort is not None and reasoning_effort not in ESFUERZOS_DE_RAZONAMIENTO:
+            raise FoundryConfigError(
+                f"{VAR_REASONING_EFFORT} debe ser uno de {', '.join(ESFUERZOS_DE_RAZONAMIENTO)} "
+                f"(recibido: {reasoning_effort!r})."
+            )
+
         # rstrip("/") saca la barra final: el SDK le agrega "/openai/v1" al endpoint
         # y una barra de más dejaría "//" en la URL.
         return cls(
             endpoint=endpoint.rstrip("/"),
             chat_deployment=chat_deployment,
             embeddings_deployment=embeddings_deployment,
+            reasoning_effort=reasoning_effort,
+            temperature=temperature,
         )
 
 
@@ -96,3 +117,17 @@ def _leer(env: Mapping[str, str], nombre: str) -> str:
     """Valor de la variable sin espacios alrededor, o "" si no existe."""
     # .get(clave, valor_por_defecto) no lanza KeyError si falta (a diferencia de env[clave]).
     return env.get(nombre, "").strip()
+
+
+def _leer_temperatura(env: Mapping[str, str]) -> float | None:
+    """FOUNDRY_TEMPERATURE como número entre 0 y 2, o None si no está definida."""
+    texto = _leer(env, VAR_TEMPERATURE)
+    if not texto:
+        return None
+    try:
+        valor = float(texto)
+    except ValueError:
+        valor = -1.0
+    if not 0.0 <= valor <= 2.0:
+        raise FoundryConfigError(f"{VAR_TEMPERATURE} debe ser un número entre 0 y 2 (recibido: {texto!r}).")
+    return valor

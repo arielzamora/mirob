@@ -18,15 +18,22 @@ SETTINGS = FoundrySettings(endpoint="https://x.services.ai.azure.com/api/project
 class ClienteOpenAIFalso:
     """Imita lo mínimo de openai.OpenAI que usa chat.generar: responses.create(...)."""
 
-    def __init__(self, usage=None) -> None:
+    def __init__(self, usage=None, status: str = "completed", incompleta_por: str | None = None) -> None:
         self.kwargs: dict = {}
         self._usage = usage
+        self._status = status
+        self._detalles = SimpleNamespace(reason=incompleta_por) if incompleta_por else None
         # SimpleNamespace arma un objeto con atributos al vuelo (como un tipo anónimo de C#).
         self.responses = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.kwargs = kwargs
-        return SimpleNamespace(output_text="Texto del modelo", usage=self._usage)
+        return SimpleNamespace(
+            output_text="Texto del modelo",
+            usage=self._usage,
+            status=self._status,
+            incomplete_details=self._detalles,
+        )
 
 
 # --- chat.generar ----------------------------------------------------------------
@@ -45,6 +52,42 @@ def test_generar_pasa_el_deployment_el_tope_de_tokens_y_no_guarda_la_conversacio
     assert cliente.kwargs["timeout"] > 0
     assert resultado == ChatResult("Texto del modelo", 100, 40, 140, resultado.latencia_ms, "mi-gpt-4o-mini")
     assert resultado.latencia_ms >= 0
+
+
+def test_generar_por_defecto_no_manda_temperature_ni_reasoning() -> None:
+    # Los modelos de razonamiento rechazan temperature: solo se envía si está configurada.
+    cliente = ClienteOpenAIFalso()
+
+    generar(cliente, SETTINGS, "i", "m")
+
+    assert "temperature" not in cliente.kwargs
+    assert "reasoning" not in cliente.kwargs
+
+
+def test_generar_manda_temperature_y_reasoning_si_estan_configurados() -> None:
+    cliente = ClienteOpenAIFalso()
+    settings = FoundrySettings(
+        endpoint=SETTINGS.endpoint, chat_deployment="d", reasoning_effort="minimal", temperature=0.3
+    )
+
+    generar(cliente, settings, "i", "m")
+
+    assert cliente.kwargs["temperature"] == 0.3
+    assert cliente.kwargs["reasoning"] == {"effort": "minimal"}
+
+
+def test_generar_informa_cuando_la_respuesta_vino_incompleta() -> None:
+    usage = SimpleNamespace(input_tokens=10, output_tokens=250, total_tokens=260)
+    cliente = ClienteOpenAIFalso(usage, status="incomplete", incompleta_por="max_output_tokens")
+
+    resultado = generar(cliente, SETTINGS, "i", "m")
+
+    assert resultado.incompleta_por == "max_output_tokens"
+    assert resultado.tokens_total == 260  # los tokens gastados se cuentan igual
+
+
+def test_generar_completa_no_marca_incompleta() -> None:
+    assert generar(ClienteOpenAIFalso(), SETTINGS, "i", "m").incompleta_por is None
 
 
 def test_generar_acepta_un_tope_de_tokens_propio() -> None:

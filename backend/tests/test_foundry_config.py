@@ -12,6 +12,8 @@ from app.foundry.config import (
     VAR_CHAT,
     VAR_EMBEDDINGS,
     VAR_ENDPOINT,
+    VAR_REASONING_EFFORT,
+    VAR_TEMPERATURE,
     FoundryConfigError,
     FoundrySettings,
 )
@@ -68,3 +70,36 @@ def test_la_configuracion_es_inmutable() -> None:
     # (como intentar modificar una propiedad `init` de un record en C#).
     with pytest.raises(dataclasses.FrozenInstanceError):
         settings.endpoint = "https://otro"  # type: ignore[misc]
+
+
+# --- Parámetros opcionales para modelos de razonamiento ------------------------------
+
+
+def _env(**extra: str) -> dict[str, str]:
+    return {VAR_ENDPOINT: ENDPOINT, VAR_CHAT: "mi-chat", **extra}
+
+
+def test_por_defecto_no_hay_temperature_ni_reasoning_effort() -> None:
+    settings = FoundrySettings.from_env(_env())
+
+    assert settings.temperature is None
+    assert settings.reasoning_effort is None
+
+
+def test_lee_reasoning_effort_y_temperature_si_estan_definidos() -> None:
+    settings = FoundrySettings.from_env(_env(**{VAR_REASONING_EFFORT: " Minimal ", VAR_TEMPERATURE: "0.3"}))
+
+    assert settings.reasoning_effort == "minimal"  # se normaliza a minúsculas y sin espacios
+    assert settings.temperature == 0.3
+
+
+@pytest.mark.parametrize("valor", ["mucho", "extremo", "1"])
+def test_un_reasoning_effort_desconocido_falla_con_un_mensaje_claro(valor: str) -> None:
+    with pytest.raises(FoundryConfigError, match=VAR_REASONING_EFFORT):
+        FoundrySettings.from_env(_env(**{VAR_REASONING_EFFORT: valor}))
+
+
+@pytest.mark.parametrize("valor", ["caliente", "-0.1", "2.5"])
+def test_una_temperature_invalida_falla_con_un_mensaje_claro(valor: str) -> None:
+    with pytest.raises(FoundryConfigError, match=VAR_TEMPERATURE):
+        FoundrySettings.from_env(_env(**{VAR_TEMPERATURE: valor}))

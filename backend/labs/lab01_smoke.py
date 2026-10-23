@@ -8,7 +8,7 @@ funcionan igual que en la app; es como correr un proyecto de consola de la soluc
 
 Antes de correrlo:
   1. Creá el proyecto y un deployment de chat en el portal de Foundry (lo creás vos).
-  2. `az login` en esta máquina, con el rol "Azure AI User" sobre el proyecto.
+  2. `az login` en esta máquina, con el rol "Foundry User" (antes "Azure AI User") sobre el proyecto.
   3. Copiá backend/.env.example a backend/.env y completá los valores.
 
 Usa las TRES funciones de app/foundry/client.py y `generar` de app/foundry/chat.py,

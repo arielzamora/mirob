@@ -21,7 +21,7 @@ def crear_credencial() -> DefaultAzureCredential:
     DefaultAzureCredential prueba en orden varias formas de autenticarse; en tu
     máquina usa la sesión de `az login`, y en Azure usará la Managed Identity sin
     cambiar código. En .NET es exactamente la misma clase: DefaultAzureCredential.
-    Tu usuario necesita el rol "Azure AI User" sobre el proyecto.
+    Tu usuario necesita el rol "Foundry User" (antes "Azure AI User") sobre el proyecto.
     """
     return DefaultAzureCredential()
 

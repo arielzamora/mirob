@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 # Tope de tokens de SALIDA por respuesta (política de costos, FinOps). Una respuesta
-# de ~250 tokens son tres o cuatro oraciones: alcanza para un chat y acota el gasto.
+# de ~250 tokens son tres o cuatro oraciones: alcanza para un chat y acota el gasto. En un modelo
+# de razonamiento ese tope incluye los tokens de "pensar" (ver FOUNDRY_REASONING_EFFORT).
 MAX_TOKENS_SALIDA = 250
 
 
@@ -37,6 +38,8 @@ class ChatResult:
     tokens_total: int  # suma de ambos; es lo que se factura
     latencia_ms: float  # de ida y vuelta, medida del lado nuestro
     deployment: str  # con qué deployment se respondió
+    # Si el modelo cortó la respuesta: "max_output_tokens" (se quedó sin tope) o "content_filter". None = completa.
+    incompleta_por: str | None = None
 
 
 class GeneradorTexto(Protocol):

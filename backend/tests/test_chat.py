@@ -187,15 +187,18 @@ def test_foundry_con_error_del_modelo_responde_502_sin_filtrar_el_detalle(
     assert "abc123" not in respuesta.text
 
 
-def test_foundry_con_respuesta_vacia_del_modelo_devuelve_el_mensaje_fijo(
+def test_foundry_con_respuesta_vacia_del_modelo_devuelve_un_mensaje_fijo_distinto_al_de_sin_informacion(
     client: TestClient, generador_falso: GeneradorFalso
 ) -> None:
     generador_falso.texto = "   "
 
     cuerpo = _chat(client, "¿Qué idiomas hablás?", mode="foundry").json()
 
-    assert "No encontré información" in cuerpo["answer"]
+    # Había información pero no se pudo redactar: NO es el mensaje de "no encontré información".
+    assert "No pude redactar" in cuerpo["answer"]
+    assert "No encontré información" not in cuerpo["answer"]
     assert cuerpo["llm_called"] is True  # se llamó (y se pagó), aunque no devolvió nada útil
+    assert cuerpo["usage"]["total_tokens"] == 150  # y esos tokens quedan registrados
 
 
 # --- Validación de entrada ----------------------------------------------------
