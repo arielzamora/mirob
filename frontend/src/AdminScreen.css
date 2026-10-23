@@ -1,0 +1,97 @@
+.admin-screen {
+  width: 100%;
+  max-width: 480px;
+  min-width: 0;
+  margin: 40px auto 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+}
+
+.admin-screen__titulo {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.admin-screen__ayuda {
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.admin-screen__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* min-width: 0 evita que el <input type="file"> (que por default no se
+     achica por debajo de su contenido) empuje la tarjeta más ancha que
+     el viewport en pantallas chicas. */
+  min-width: 0;
+}
+
+.admin-screen__form input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-screen__form input[type="password"] {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font: inherit;
+}
+
+.admin-screen__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.admin-screen__form input[type="file"] {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--color-bg);
+}
+
+.admin-screen__form button {
+  align-self: flex-start;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-screen__form button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.admin-screen__form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-screen__resultado {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+
+.admin-screen__resultado--ok {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.admin-screen__resultado--error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}

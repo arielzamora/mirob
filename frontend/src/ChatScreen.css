@@ -1,0 +1,128 @@
+.chat-screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-screen__historial {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 4px;
+}
+
+.chat-screen__vacio {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  margin-top: 32px;
+}
+
+.burbuja {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.burbuja--usuario {
+  align-self: flex-end;
+  background: var(--color-bubble-user);
+  color: var(--color-bubble-user-text);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.burbuja--bot {
+  align-self: flex-start;
+  background: var(--color-bubble-bot);
+  color: var(--color-bubble-bot-text);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.burbuja--error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.burbuja--cargando .burbuja__texto {
+  opacity: 0.5;
+}
+
+.burbuja__texto {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  font-size: 0.95rem;
+}
+
+.burbuja__meta {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.chat-screen__form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-screen__campo {
+  display: flex;
+}
+
+.chat-screen__campo--input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-screen__label-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.chat-screen__form select,
+.chat-screen__form input {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.chat-screen__form select {
+  width: auto;
+}
+
+.chat-screen__form button {
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-screen__form button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.chat-screen__form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

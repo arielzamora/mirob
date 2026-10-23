@@ -1,0 +1,17 @@
+pandas==3.0.5
+numpy==2.5.3
+scikit-learn==1.9.1
+scipy==1.18.1
+pytest==9.1.1
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+httpx==0.28.1
+
+# --- Azure AI Foundry (Etapa 2). Solo app/foundry/ usa estos paquetes. ---
+# openai<3: según los labs de MS Learn, openai 3.x rompe `import httpx` en azure-ai-projects.
+# Con esa restricción pip resolvió azure-ai-projects 2.4.0.
+azure-ai-projects==2.4.0
+azure-identity==1.26.0
+openai==2.54.0
+python-dotenv==1.2.3

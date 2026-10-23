@@ -1,0 +1,11 @@
+Camila Duarte es un perfil ficticio que usa MiRob, un asistente personal
+que en el futuro la va a representar frente a reclutadores, respondiendo
+preguntas sobre su perfil profesional.
+
+P: ¿Para qué sirve MiRob?
+R: MiRob sirve para responder, en lugar de la persona, las preguntas que le
+haría un reclutador sobre su perfil profesional, técnico, personal y sus
+habilidades blandas.
+
+En esta etapa el objetivo es simple: practicar retrieval clásico con TF-IDF
+y similitud coseno, sin generación de texto.
