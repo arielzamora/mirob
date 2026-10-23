@@ -182,8 +182,9 @@ jobs:
             -d '{"tenant_id":"demo","message":"¿Qué idiomas hablás?","mode":"raw"}' \
             | jq -e '.chunks[0].source == "personal.md" and .llm_called == false'
 
-          # La página de embed manda un frame-ancestors (por tenant).
-          curl -sfI "$API_URL/embed/digital-zur" | grep -i '^content-security-policy:.*frame-ancestors'
+          # La página de embed manda un frame-ancestors (por tenant). Es un GET que vuelca solo los
+          # headers (-D -): un HEAD (curl -I) devuelve 405 porque la ruta solo acepta GET.
+          curl -sf -D - -o /dev/null "$API_URL/embed/digital-zur" | grep -i '^content-security-policy:.*frame-ancestors'
       - name: Chequear el front
         env:
           SWA_URL: ${{ needs.infraestructura.outputs.swa_url }}

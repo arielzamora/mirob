@@ -21,13 +21,23 @@ $app = az ad app create --display-name "mirob-github-deploy" --query "{id:id, ap
 az ad sp create --id $app.appId
 ```
 
-Credencial federada: solo el `environment` `production` de este repositorio puede usarla. Guardá este JSON como `credencial.json` (cambiá `arielzamora/mirob` si tu repo se llama distinto) y borralo después:
+Credencial federada: solo el `environment` `production` de este repositorio puede usarla.
+
+> **Ojo con el formato del `subject`.** GitHub ahora puede incluir los **ids numéricos** del dueño y del repositorio (`use_immutable_subject`), y entonces el token de OIDC trae `repo:<dueño>@<id>/<repo>@<id>:environment:production` en vez de `repo:<dueño>/<repo>:environment:production`. Si la credencial no coincide exactamente, el login falla con `AADSTS700213`. Para ver el prefijo que usa tu repositorio:
+>
+> ```bash
+> gh api repos/arielzamora/mirob/actions/oidc/customization/sub --jq .sub_claim_prefix
+> ```
+>
+> El `subject` de abajo es ese prefijo + `:environment:production`. Con ids es más seguro: no sirve si alguien recrea un repositorio con el mismo nombre.
+
+Guardá este JSON como `credencial.json` (cambiá el `subject` por el de tu repositorio) y borralo después:
 
 ```json
 {
   "name": "github-production",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:arielzamora/mirob:environment:production",
+  "subject": "repo:arielzamora@54455719/mirob@1430503058:environment:production",
   "audiences": ["api://AzureADTokenExchange"]
 }
 ```
