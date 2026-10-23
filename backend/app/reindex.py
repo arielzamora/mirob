@@ -97,7 +97,12 @@ def reindex(tenant_id: str, content_dir: Path | str | None = None) -> IndexState
 
 
 def get_state(tenant_id: str) -> IndexState:
-    """Devuelve el índice del tenant, reindexando en el momento si todavía no existe."""
-    if tenant_id not in _states:
+    """Devuelve el índice del tenant, reindexando en el momento si todavía no existe.
+
+    Si el índice cacheado está VACÍO también se vuelve a armar: así, al subir archivos al share
+    de Azure Files por fuera de la API, el tenant empieza a responder sin reiniciar nada (revisar una
+    carpeta vacía es barato). Un tenant con contenido se queda en memoria hasta un reindex explícito.
+    """
+    if tenant_id not in _states or _states[tenant_id].corpus.empty:
         return reindex(tenant_id)
     return _states[tenant_id]

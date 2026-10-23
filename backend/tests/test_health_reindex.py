@@ -100,3 +100,18 @@ def test_reindex_tambien_esta_limitado_por_ip(
 
     assert _reindexar(client, clave="mala").status_code == 401
     assert _reindexar(client).status_code == 429
+
+
+def test_un_tenant_sin_contenido_empieza_a_responder_al_aparecer_archivos_sin_reindexar(
+    client_aislado: tuple[TestClient, Path],
+) -> None:
+    client, carpeta = client_aislado
+    chat = {"tenant_id": TENANT_AISLADO, "message": "¿Qué toma?"}
+    assert client.post("/api/v1/chat", json=chat).status_code == 503  # el índice vacío queda cacheado
+
+    (carpeta / "cafe.md").write_text("## Cafetería\nP: ¿Qué toma?\nR: Toma café con leche.", encoding="utf-8")
+
+    # Sin llamar a /admin/reindex: el índice vacío se revisa de nuevo y encuentra el archivo.
+    respuesta = client.post("/api/v1/chat", json=chat)
+    assert respuesta.status_code == 200
+    assert respuesta.json()["chunks"][0]["source"] == "cafe.md"

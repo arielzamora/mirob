@@ -1,6 +1,10 @@
 {
   "nombre": "Digital Zur",
-  "umbral_similitud": 0.10,
-  "origenes_permitidos": [],
+  "umbral_similitud": 0.1,
+  "origenes_permitidos": [
+    "https://digitalzur.com.ar",
+    "https://www.digitalzur.com.ar",
+    "http://localhost:3000"
+  ],
   "habilitado": true
 }
