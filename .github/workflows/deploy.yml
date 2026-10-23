@@ -41,7 +41,7 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       repositorio: ${{ steps.meta.outputs.repositorio }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Calcular nombre y tag de la imagen
         id: meta
         run: |
@@ -75,7 +75,7 @@ jobs:
       swa_name: ${{ steps.bicep.outputs.swa_name }}
       swa_url: ${{ steps.bicep.outputs.swa_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -111,7 +111,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
