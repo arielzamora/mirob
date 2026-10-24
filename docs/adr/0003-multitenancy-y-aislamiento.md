@@ -33,6 +33,8 @@ en el prompt que viaja al LLM, ni en el disco.
 
 **Qué sitios pueden embeber el widget (`frame-ancestors` por tenant)**
 
+> La decisión completa del widget, la cadena de iframes y la corrección posterior está en el [ADR 0007](0007-widget-embebible-y-cadena-de-iframes.md); lo de acá es el resumen.
+
 CORS y `frame-ancestors` responden preguntas distintas:
 
 - **CORS** decide qué *origen* puede llamar a la API desde un navegador. Quien llama es el

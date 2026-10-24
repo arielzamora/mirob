@@ -51,7 +51,8 @@ backend/
     sample/          # perfil ficticio versionado (tenant "demo" y tests)
   tests/             # pytest
 frontend/            # React + Vite: chat y pantalla de carga
-docs/adr/            # decisiones de arquitectura
+docs/adr/            # decisiones de arquitectura (9 ADR)
+docs/arquitectura/   # diagramas C4 en Mermaid
 infra/               # Bicep: Container Apps, Azure Files, Static Web Apps (ver abajo)
 ```
 
@@ -211,5 +212,14 @@ tiene la respuesta, lo dice. Cada etapa se mide con evals contra ese criterio.
 
 ## Decisiones de arquitectura
 
-- [ADR 0001 — Retrieval léxico (TF-IDF) como línea base](docs/adr/0001-retrieval-lexico-tfidf.md)
+Diagramas C4 (contexto, contenedores, componentes y despliegue) y flujos clave: [docs/arquitectura/c4.md](docs/arquitectura/c4.md).
+
+- [ADR 0001 — Retrieval léxico (TF-IDF) como línea base](docs/adr/0001-retrieval-lexico-tfidf.md) (enmendado: stopwords en español)
 - [ADR 0002 — API key temporal para el admin](docs/adr/0002-api-key-temporal-admin.md)
+- [ADR 0003 — Multitenancy: aislamiento de datos y embebido por tenant](docs/adr/0003-multitenancy-y-aislamiento.md)
+- [ADR 0004 — Gobierno de costos de IA](docs/adr/0004-gobierno-de-costos-de-ia.md) (enmendado: modelo y umbral)
+- [ADR 0005 — Hosting en Azure: Container Apps, Azure Files y Static Web Apps](docs/adr/0005-hosting-en-azure.md)
+- [ADR 0006 — CI/CD con GitHub Actions y OIDC](docs/adr/0006-cicd-github-actions-y-oidc.md)
+- [ADR 0007 — Widget embebible y cadena de iframes](docs/adr/0007-widget-embebible-y-cadena-de-iframes.md)
+- [ADR 0008 — Foundry: autenticación, modelo y comportamiento del asistente](docs/adr/0008-foundry-autenticacion-modelo-y-prompts.md)
+- [ADR 0009 — Contenido de los tenants y reindexado automático](docs/adr/0009-contenido-de-tenants-y-reindexado-automatico.md)
