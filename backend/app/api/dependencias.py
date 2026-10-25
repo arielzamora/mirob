@@ -6,10 +6,13 @@ llaman o declaran (equivalente a un servicio inyectado o a un filtro en ASP.NET 
 
 import math
 import os
+from collections.abc import Callable
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from fastapi import Depends, HTTPException, Request
 
+from app.accesskeys import AlmacenClavesJson, ServicioClaves
 from app.finops import EstadoLimites, Limites
 from app.foundry.generador import FoundryGenerador
 from app.foundry.tipos import GeneradorTexto
@@ -92,6 +95,32 @@ def limitar_chat(request: Request, estado: EstadoLimites = Depends(obtener_estad
     espera = estado.chat.intentar(ip_del_cliente(request))
     if espera is not None:
         raise responder_429(espera, "Demasiados mensajes seguidos. Esperá un momento y volvé a intentar.")
+
+
+def limitar_acceso(request: Request, estado: EstadoLimites = Depends(obtener_estado_limites)) -> None:
+    """Dependencia del canje de access keys: frena a quien prueba keys al azar."""
+    espera = estado.acceso.intentar(ip_del_cliente(request))
+    if espera is not None:
+        raise responder_429(espera, "Demasiados intentos de acceso. Esperá un momento y volvé a intentar.")
+
+
+# --- Access keys (Parte 3.0) -----------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _servicio_claves_unico() -> ServicioClaves:
+    """Un solo servicio de keys para todo el proceso, sobre el archivo real (junto al contenido)."""
+    return ServicioClaves(AlmacenClavesJson())
+
+
+def obtener_servicio_claves() -> ServicioClaves:
+    """Dependencia que entrega el servicio de keys; los tests la reemplazan con uno sobre una carpeta temporal."""
+    return _servicio_claves_unico()
+
+
+def obtener_reloj() -> Callable[[], datetime]:
+    """Dependencia que entrega el reloj (UTC); los tests lo reemplazan para simular el paso del tiempo."""
+    return lambda: datetime.now(timezone.utc)
 
 
 def limitar_admin(request: Request, estado: EstadoLimites = Depends(obtener_estado_limites)) -> None:

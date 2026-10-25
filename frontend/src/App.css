@@ -86,6 +86,14 @@
   font-size: 0.9rem;
 }
 
+/* Espera centrada (por ejemplo, mientras se verifica la access key del enlace). */
+.app-espera {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .app-aviso--error {
   color: var(--color-danger);
   background: var(--color-danger-bg);

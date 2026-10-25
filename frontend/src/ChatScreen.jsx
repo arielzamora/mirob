@@ -4,6 +4,7 @@ import { postChat } from "./api.js";
 import ChatMeta from "./ChatMeta.jsx";
 import ModeSwitch from "./ModeSwitch.jsx";
 import RobotEspera from "./RobotEspera.jsx";
+import { CODIGOS_ACCESO_PERDIDO } from "./useAcceso.js";
 
 let nextMessageId = 1;
 
@@ -35,7 +36,17 @@ function armarHistorial(mensajes) {
 // `embed` = widget/enlace público: sin selector de modo ni detalle de auditoría.
 // `conectando` = la API todavía no respondió al primer pedido de la página (puede estar
 // arrancando); se muestra el robot en lugar del saludo, pero igual se puede escribir.
-function ChatScreen({ tenantId, tenantNombre, embed, modoInicial, conectando = false }) {
+// `sessionToken` = sesión del acceso por access key (solo en tenants privados).
+// `onAccesoPerdido(error)` se llama si el backend dice que la sesión/key ya no sirve.
+function ChatScreen({
+  tenantId,
+  tenantNombre,
+  embed,
+  modoInicial,
+  conectando = false,
+  sessionToken = null,
+  onAccesoPerdido = null,
+}) {
   // Historial en estado local (ver CLAUDE.md: nada de persistencia todavía).
   // Se pierde al recargar la página — es intencional en esta etapa.
   const [mensajes, setMensajes] = useState([]);
@@ -82,6 +93,7 @@ function ChatScreen({ tenantId, tenantNombre, embed, modoInicial, conectando = f
         message: preguntaLimpia,
         mode: modo,
         conversationHistory,
+        sessionToken,
       });
       setMensajes((previos) => [
         ...previos,
@@ -103,6 +115,12 @@ function ChatScreen({ tenantId, tenantNombre, embed, modoInicial, conectando = f
         },
       ]);
     } catch (error) {
+      // Sesión vencida, key revocada, etc.: no es un error de chat, es que hay que volver a la
+      // pantalla de acceso (el padre la muestra con el motivo).
+      if (onAccesoPerdido && CODIGOS_ACCESO_PERDIDO.has(error.codigo)) {
+        onAccesoPerdido(error);
+        return;
+      }
       setMensajes((previos) => [
         ...previos,
         { id: nextMessageId++, rol: "bot", texto: error.message, esError: true },

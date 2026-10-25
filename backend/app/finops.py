@@ -20,6 +20,7 @@ from app.tenants import TenantConfig
 VAR_CHAT_POR_MINUTO = "MIROB_RATE_CHAT_PER_MINUTE"
 VAR_FOUNDRY_POR_HORA = "MIROB_RATE_FOUNDRY_PER_HOUR"
 VAR_ADMIN_POR_MINUTO = "MIROB_RATE_ADMIN_PER_MINUTE"
+VAR_ACCESO_POR_MINUTO = "MIROB_RATE_ACCESS_PER_MINUTE"
 VAR_TOPE_DIARIO = "MIROB_DAILY_TOKEN_CAP"
 
 
@@ -50,6 +51,7 @@ class Limites:
     chat_por_minuto: int = 20  # pedidos de chat por IP por minuto (cualquier modo)
     foundry_por_hora: int = 30  # llamadas al LLM por IP por hora
     admin_por_minuto: int = 10  # pedidos al admin por IP por minuto (frena la fuerza bruta de la API key)
+    acceso_por_minuto: int = 10  # canjes de access key por IP por minuto (frena el que prueba keys al azar)
     tope_diario_global: int = 200_000  # tokens por día (UTC) entre todos los tenants
 
     @classmethod
@@ -60,6 +62,7 @@ class Limites:
             chat_por_minuto=_entero(env, VAR_CHAT_POR_MINUTO, defaults.chat_por_minuto),
             foundry_por_hora=_entero(env, VAR_FOUNDRY_POR_HORA, defaults.foundry_por_hora),
             admin_por_minuto=_entero(env, VAR_ADMIN_POR_MINUTO, defaults.admin_por_minuto),
+            acceso_por_minuto=_entero(env, VAR_ACCESO_POR_MINUTO, defaults.acceso_por_minuto),
             tope_diario_global=_entero(env, VAR_TOPE_DIARIO, defaults.tope_diario_global),
         )
 
@@ -134,6 +137,7 @@ class EstadoLimites:
         self.chat = LimitadorVentana(limites.chat_por_minuto, 60)
         self.foundry = LimitadorVentana(limites.foundry_por_hora, 3600)
         self.admin = LimitadorVentana(limites.admin_por_minuto, 60)
+        self.acceso = LimitadorVentana(limites.acceso_por_minuto, 60)
         self.presupuesto = PresupuestoDiario(limites.tope_diario_global)
 
 

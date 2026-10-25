@@ -36,6 +36,13 @@ LARGO_MAXIMO_TENANT_ID = 40
 # ajustar el suyo: calibralo con preguntas reales de ese contenido.
 UMBRAL_SIMILITUD_POR_DEFECTO = 0.10
 
+# Quién puede conversar con el tenant: cualquiera ("publico", el widget de un sitio) o solo quien
+# tenga una access key vigente ("access_key", por ejemplo reclutadores; ver app/accesskeys.py).
+ACCESO_PUBLICO = "publico"
+ACCESO_POR_KEY = "access_key"
+_ACCESOS_VALIDOS = (ACCESO_PUBLICO, ACCESO_POR_KEY)
+LARGO_MAXIMO_CONTACTO_ACCESO = 300
+
 
 class TenantInvalido(ValueError):
     """El tenant_id tiene un formato inválido (se responde 422)."""
@@ -61,6 +68,9 @@ class TenantConfig:
     origenes_permitidos: tuple[str, ...]  # sitios que pueden embeber el widget (frame-ancestors, ver /embed)
     usa_sample: bool  # True: el contenido sale de data/sample/ (perfil ficticio)
     tope_diario_tokens: int | None = None  # tope diario propio del tenant; None = solo rige el global
+    acceso: str = ACCESO_PUBLICO  # "publico" o "access_key" (chat solo con una key vigente)
+    # Texto para quien llega con una key vencida o revocada (cómo pedir una nueva). Lo escribe el dueño.
+    contacto_acceso: str | None = None
 
 
 def validar_tenant_id(tenant_id: str) -> str:
@@ -99,6 +109,18 @@ def _cargar_config(carpeta: Path) -> tuple[TenantConfig, bool]:
     if tope is not None and (not isinstance(tope, int) or isinstance(tope, bool) or tope <= 0):
         raise TenantConfigError(f"tope_diario_tokens de '{carpeta.name}' debe ser un entero positivo (es {tope!r}).")
 
+    acceso = datos.get("acceso", ACCESO_PUBLICO)
+    if acceso not in _ACCESOS_VALIDOS:
+        raise TenantConfigError(f"acceso de '{carpeta.name}' debe ser uno de {_ACCESOS_VALIDOS} (es {acceso!r}).")
+
+    contacto = datos.get("contacto_acceso")
+    if contacto is not None and (not isinstance(contacto, str) or len(contacto) > LARGO_MAXIMO_CONTACTO_ACCESO):
+        raise TenantConfigError(
+            f"contacto_acceso de '{carpeta.name}' debe ser un texto de hasta {LARGO_MAXIMO_CONTACTO_ACCESO} caracteres."
+        )
+    if contacto is not None:
+        contacto = contacto.strip() or None  # un texto en blanco equivale a no haberlo puesto
+
     config = TenantConfig(
         tenant_id=carpeta.name,
         nombre=datos["nombre"],
@@ -107,6 +129,8 @@ def _cargar_config(carpeta: Path) -> tuple[TenantConfig, bool]:
         origenes_permitidos=origenes,
         usa_sample=bool(datos.get("usa_sample", False)),
         tope_diario_tokens=tope,
+        acceso=acceso,
+        contacto_acceso=contacto,
     )
     return config, bool(datos.get("habilitado", True))
 

@@ -1,0 +1,28 @@
+.acceso-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.acceso-screen__candado {
+  color: var(--color-primary);
+}
+
+.acceso-screen__titulo {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--color-text);
+}
+
+.acceso-screen__texto {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}

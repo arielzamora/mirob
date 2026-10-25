@@ -233,7 +233,7 @@ def test_en_modo_foundry_el_llm_solo_recibe_el_contenido_y_el_prompt_de_su_tenan
 # --- GET /api/v1/tenants ------------------------------------------------------
 
 
-def test_listar_tenants_devuelve_solo_id_y_nombre_de_los_habilitados(client: TestClient) -> None:
+def test_listar_tenants_devuelve_solo_id_nombre_y_acceso_de_los_habilitados(client: TestClient) -> None:
     respuesta = client.get("/api/v1/tenants")
 
     assert respuesta.status_code == 200
@@ -244,4 +244,4 @@ def test_listar_tenants_devuelve_solo_id_y_nombre_de_los_habilitados(client: Tes
     assert "chocolateria" not in ids  # deshabilitado
     for tenant in tenants:
         # Nada de configuración interna: ni prompt, ni umbral, ni orígenes.
-        assert set(tenant) == {"tenant_id", "nombre"}
+        assert set(tenant) == {"tenant_id", "nombre", "acceso"}

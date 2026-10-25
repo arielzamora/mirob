@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 import { getTenants } from "./api.js";
-import ChatScreen from "./ChatScreen.jsx";
+import ChatConAcceso from "./ChatConAcceso.jsx";
 import AdminScreen from "./AdminScreen.jsx";
 import { MODOS } from "./modos.js";
 
@@ -91,14 +91,17 @@ function App() {
       return <AdminScreen key={tenantId} tenantId={tenantId} tenantNombre={tenantNombre} />;
     }
     // key={tenantId}: al cambiar de tenant el chat se remonta y empieza sin historial.
+    // Si el tenant exige access key (tenantActual.acceso), ChatConAcceso muestra la pantalla de acceso
+    // hasta que haya una sesión válida.
     return (
-      <ChatScreen
+      <ChatConAcceso
         key={tenantId}
         tenantId={tenantId}
         tenantNombre={tenantNombre}
+        requiereKey={tenantActual?.acceso === "access_key"}
+        tenantListo={apiLista}
         embed={EMBED}
         modoInicial={MODO_INICIAL}
-        conectando={!apiLista}
       />
     );
   }

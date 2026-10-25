@@ -7,13 +7,26 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 function extraerDetalle(data) {
-  // FastAPI devuelve `detail` como string (HTTPException) o como una lista
-  // de errores de validación de pydantic ([{msg, loc, ...}, ...]).
-  // Normalizamos ambos casos a un solo string legible.
+  // FastAPI devuelve `detail` como string (HTTPException), como una lista de errores de
+  // validación de pydantic ([{msg, loc, ...}, ...]) o, en el acceso por access key, como un
+  // objeto { codigo, mensaje }. Normalizamos los tres casos a un solo string legible.
   if (Array.isArray(data?.detail)) {
     return data.detail.map((error) => error.msg).join(", ");
   }
+  if (data?.detail && typeof data.detail === "object") {
+    return data.detail.mensaje;
+  }
   return data?.detail;
+}
+
+// Arma el Error de una respuesta fallida. Además del mensaje lleva el `codigo` estable del backend
+// (key_vencida, sesion_vencida...) y el status, para que la pantalla decida qué mostrar sin
+// interpretar textos (en .NET sería una excepción propia con propiedades).
+function errorDeRespuesta(response, data, mensajePorDefecto) {
+  const error = new Error(extraerDetalle(data) || mensajePorDefecto);
+  error.codigo = data?.detail?.codigo ?? null;
+  error.status = response.status;
+  return error;
 }
 
 async function leerJson(response) {
@@ -34,15 +47,38 @@ export async function getTenants() {
     throw new Error(extraerDetalle(data) || "No se pudo cargar la lista de tenants.");
   }
 
-  return data; // [{ tenant_id, nombre }]
+  return data; // [{ tenant_id, nombre, acceso }]
+}
+
+// Canjea una access key por una sesión corta. La key viaja UNA vez, en el cuerpo (nunca en la URL).
+export async function postAcceso(tenantId, key) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/acceso`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenant_id: tenantId, key }),
+  });
+
+  const data = await leerJson(response);
+
+  if (!response.ok) {
+    throw errorDeRespuesta(response, data, "No se pudo verificar la access key.");
+  }
+
+  return data; // { tenant_id, session_token, expires_in, etiqueta, key_expires_at }
 }
 
 // El límite de 350 caracteres de `message` y el de 1000 por mensaje del historial
 // los valida el backend (422); el front los respeta para no mandar requests inválidos.
-export async function postChat({ tenantId, message, mode, conversationHistory }) {
+// `sessionToken` solo se manda en los tenants que exigen access key.
+export async function postChat({ tenantId, message, mode, conversationHistory, sessionToken }) {
+  const headers = { "Content-Type": "application/json" };
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       tenant_id: tenantId,
       message,
@@ -54,7 +90,7 @@ export async function postChat({ tenantId, message, mode, conversationHistory })
   const data = await leerJson(response);
 
   if (!response.ok) {
-    throw new Error(extraerDetalle(data) || "Error al consultar el chat.");
+    throw errorDeRespuesta(response, data, "Error al consultar el chat.");
   }
 
   return data;

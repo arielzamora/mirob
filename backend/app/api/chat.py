@@ -8,16 +8,22 @@ la API pública que consume el front y el widget; el resto del código sigue en 
 """
 
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.accesskeys import ServicioClaves
+from app.api.acceso import encabezado_autorizacion, exigir_acceso_al_chat
 from app.api.dependencias import (
     ip_del_cliente,
     limitar_chat,
     obtener_estado_limites,
     obtener_generador,
+    obtener_reloj,
+    obtener_servicio_claves,
     resolver_tenant,
     responder_429,
 )
@@ -117,6 +123,9 @@ def chat(
     http_request: Request,
     generador: GeneradorTexto = Depends(obtener_generador),
     estado: EstadoLimites = Depends(obtener_estado_limites),
+    autorizacion: str | None = Depends(encabezado_autorizacion),
+    servicio_claves: ServicioClaves = Depends(obtener_servicio_claves),
+    reloj: Callable[[], datetime] = Depends(obtener_reloj),
 ) -> ChatResponse:
     """Recupera los chunks más relevantes del tenant y responde según `mode`.
 
@@ -132,6 +141,10 @@ def chat(
     # Se resuelve el tenant antes de cualquier otra cosa: ni siquiera se mira el
     # índice si el id es inválido o inexistente.
     tenant = resolver_tenant(request.tenant_id)
+
+    # Si el tenant exige access key, sin una sesión válida no se sigue (ni se toca el índice ni el LLM).
+    # En un tenant público esta línea no hace nada.
+    exigir_acceso_al_chat(tenant, autorizacion, servicio_claves, reloj)
 
     state = get_state(tenant.tenant_id)
     if state.corpus.empty:

@@ -152,7 +152,11 @@ def generador_falso() -> GeneradorFalso:
 
 # Límites tan altos que ningún test los toca (salvo los que pidan otros a propósito).
 LIMITES_HOLGADOS = Limites(
-    chat_por_minuto=100_000, foundry_por_hora=100_000, admin_por_minuto=100_000, tope_diario_global=10**9
+    chat_por_minuto=100_000,
+    foundry_por_hora=100_000,
+    admin_por_minuto=100_000,
+    acceso_por_minuto=100_000,
+    tope_diario_global=10**9,
 )
 
 
