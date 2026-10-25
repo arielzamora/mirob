@@ -3,11 +3,11 @@ import "./AdminScreen.css";
 import { postAdminContent } from "./api.js";
 
 // Una sola caja de carga simple (nada de las 3 secciones separadas todavía,
-// eso es Etapa 2). Sube al tenant elegido en el selector del header. La API key se pide acá y vive SOLO en el estado de React:
-// no se guarda en localStorage ni en la URL, así se pierde al recargar la página.
-function AdminScreen({ tenantId, tenantNombre }) {
+// eso es Etapa 2). Sube al tenant elegido en el selector del header. La API key se pide acá y vive SOLO en el estado de React
+// (lo comparte con la pantalla de access keys para no tipearla dos veces): no se guarda en localStorage
+// ni en la URL, así se pierde al recargar la página.
+function AdminScreen({ tenantId, tenantNombre, apiKey, onApiKeyChange }) {
   const [archivo, setArchivo] = useState(null);
-  const [apiKey, setApiKey] = useState("");
   const [subiendo, setSubiendo] = useState(false);
   const [resultado, setResultado] = useState(null); // { tipo: "ok" | "error", mensaje }
   const inputId = useId();
@@ -53,7 +53,7 @@ function AdminScreen({ tenantId, tenantNombre }) {
           type="password"
           autoComplete="off"
           value={apiKey}
-          onChange={(evento) => setApiKey(evento.target.value)}
+          onChange={(evento) => onApiKeyChange(evento.target.value)}
           disabled={subiendo}
         />
 

@@ -3,13 +3,15 @@ import "./App.css";
 import { getTenants } from "./api.js";
 import ChatConAcceso from "./ChatConAcceso.jsx";
 import AdminScreen from "./AdminScreen.jsx";
+import KeysScreen from "./KeysScreen.jsx";
 import { MODOS } from "./modos.js";
 
-// Dos pantallas nada más (ver CLAUDE.md: nada de router todavía, sería
+// Pocas pantallas (ver CLAUDE.md: nada de router todavía, sería
 // sobrekill para esto). El tab activo es estado simple de React.
 const TABS = [
   { id: "chat", label: "Chat" },
   { id: "admin", label: "Cargar contenido" },
+  { id: "keys", label: "Access keys" },
 ];
 
 // Parámetros de la URL, leídos una sola vez al cargar la página:
@@ -37,6 +39,9 @@ function App() {
   // false hasta que la API responde (bien o mal) al primer pedido: si estaba "dormida",
   // ese pedido es el que la despierta y el chat muestra el robot de espera mientras tanto.
   const [apiLista, setApiLista] = useState(false);
+  // API key del admin: la comparten "Cargar contenido" y "Access keys" para no tipearla dos veces.
+  // Vive solo en memoria (nunca en localStorage ni en la URL): al recargar la página se pierde.
+  const [apiKeyAdmin, setApiKeyAdmin] = useState("");
 
   // Carga la lista de tenants habilitados al abrir la página.
   useEffect(() => {
@@ -88,7 +93,27 @@ function App() {
       );
     }
     if (tabActivo === "admin" && !EMBED) {
-      return <AdminScreen key={tenantId} tenantId={tenantId} tenantNombre={tenantNombre} />;
+      return (
+        <AdminScreen
+          key={tenantId}
+          tenantId={tenantId}
+          tenantNombre={tenantNombre}
+          apiKey={apiKeyAdmin}
+          onApiKeyChange={setApiKeyAdmin}
+        />
+      );
+    }
+    if (tabActivo === "keys" && !EMBED) {
+      return (
+        <KeysScreen
+          key={tenantId}
+          tenantId={tenantId}
+          tenantNombre={tenantNombre}
+          tenantAcceso={tenantActual?.acceso}
+          apiKey={apiKeyAdmin}
+          onApiKeyChange={setApiKeyAdmin}
+        />
+      );
     }
     // key={tenantId}: al cambiar de tenant el chat se remonta y empieza sin historial.
     // Si el tenant exige access key (tenantActual.acceso), ChatConAcceso muestra la pantalla de acceso

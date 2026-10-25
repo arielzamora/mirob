@@ -96,6 +96,47 @@ export async function postChat({ tenantId, message, mode, conversationHistory, s
   return data;
 }
 
+// --- Administración de access keys (todas exigen la API key del admin en X-API-Key) ---------------
+
+async function pedirAdmin(ruta, apiKey, opciones, mensajePorDefecto) {
+  const headers = { "X-API-Key": apiKey };
+  if (opciones.body) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(`${API_BASE_URL}${ruta}`, { ...opciones, headers });
+  const data = await leerJson(response);
+  if (!response.ok) {
+    throw errorDeRespuesta(response, data, mensajePorDefecto);
+  }
+  return data;
+}
+
+// Las keys de un tenant, con estado y contadores de uso (nunca la key ni su hash).
+export function getAdminKeys(apiKey, tenantId) {
+  const consulta = new URLSearchParams({ tenant_id: tenantId });
+  return pedirAdmin(`/admin/keys?${consulta}`, apiKey, { method: "GET" }, "No se pudieron cargar las keys.");
+}
+
+// Crea una key. La respuesta trae la key en claro y el enlace: es la ÚNICA vez que se ven.
+export function postAdminKey(apiKey, { tenantId, etiqueta, diasVigencia, cupoPreguntas }) {
+  const cuerpo = { tenant_id: tenantId, etiqueta, dias_vigencia: diasVigencia, cupo_preguntas: cupoPreguntas };
+  return pedirAdmin(
+    "/admin/keys",
+    apiKey,
+    { method: "POST", body: JSON.stringify(cuerpo) },
+    "No se pudo crear la key.",
+  );
+}
+
+export function postRevocarKey(apiKey, keyId) {
+  return pedirAdmin(
+    `/admin/keys/${encodeURIComponent(keyId)}/revoke`,
+    apiKey,
+    { method: "POST" },
+    "No se pudo revocar la key.",
+  );
+}
+
 export async function postAdminContent(file, apiKey, tenantId) {
   // multipart/form-data: no seteamos el header Content-Type a mano, el
   // browser arma el boundary correcto solo cuando el body es un FormData.
