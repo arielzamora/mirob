@@ -34,6 +34,9 @@ function App() {
   const [tenants, setTenants] = useState([]); // [{ tenant_id, nombre }]
   const [errorTenants, setErrorTenants] = useState("");
   const [tenantId, setTenantId] = useState(TENANT_DE_LA_URL);
+  // false hasta que la API responde (bien o mal) al primer pedido: si estaba "dormida",
+  // ese pedido es el que la despierta y el chat muestra el robot de espera mientras tanto.
+  const [apiLista, setApiLista] = useState(false);
 
   // Carga la lista de tenants habilitados al abrir la página.
   useEffect(() => {
@@ -41,6 +44,7 @@ function App() {
     getTenants()
       .then((lista) => {
         if (cancelado) return;
+        setApiLista(true);
         setTenants(lista);
         // Sin tenant en la URL (o con uno que no está en la lista), se parte del primero de la
         // lista. En la vista pública no se adivina: se respeta lo que diga la URL.
@@ -50,7 +54,11 @@ function App() {
         });
       })
       .catch((error) => {
-        if (!cancelado) setErrorTenants(error.message);
+        if (cancelado) return;
+        // Aun con error se deja de mostrar "conectando": si la API falla, que el chat
+        // muestre su propio error al enviar en vez de quedarse esperando para siempre.
+        setApiLista(true);
+        setErrorTenants(error.message);
       });
     return () => {
       cancelado = true;
@@ -90,6 +98,7 @@ function App() {
         tenantNombre={tenantNombre}
         embed={EMBED}
         modoInicial={MODO_INICIAL}
+        conectando={!apiLista}
       />
     );
   }

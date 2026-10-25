@@ -54,10 +54,6 @@
   color: var(--color-danger);
 }
 
-.burbuja--cargando .burbuja__texto {
-  opacity: 0.5;
-}
-
 .burbuja__texto {
   margin: 0;
   white-space: pre-wrap;

@@ -3,8 +3,13 @@ import "./ChatScreen.css";
 import { postChat } from "./api.js";
 import ChatMeta from "./ChatMeta.jsx";
 import ModeSwitch from "./ModeSwitch.jsx";
+import RobotEspera from "./RobotEspera.jsx";
 
 let nextMessageId = 1;
+
+// Pasado este tiempo esperando respuesta, se avisa que el servidor estaba "dormido" para
+// que la persona no crea que el chat se colgó (el primer pedido tras un rato sin uso tarda).
+const MS_ANTES_DE_AVISO_LARGO = 5000;
 
 // Límites del contrato de POST /api/v1/chat (los valida el backend; acá se respetan
 // para no mandar requests que el servidor rechazaría con 422).
@@ -28,15 +33,26 @@ function armarHistorial(mensajes) {
 // al cambiar de tenant este componente se remonta y el historial arranca vacío:
 // nunca se mezclan conversaciones de distintos tenants.
 // `embed` = widget/enlace público: sin selector de modo ni detalle de auditoría.
-function ChatScreen({ tenantId, tenantNombre, embed, modoInicial }) {
+// `conectando` = la API todavía no respondió al primer pedido de la página (puede estar
+// arrancando); se muestra el robot en lugar del saludo, pero igual se puede escribir.
+function ChatScreen({ tenantId, tenantNombre, embed, modoInicial, conectando = false }) {
   // Historial en estado local (ver CLAUDE.md: nada de persistencia todavía).
   // Se pierde al recargar la página — es intencional en esta etapa.
   const [mensajes, setMensajes] = useState([]);
   const [pregunta, setPregunta] = useState("");
   const [modo, setModo] = useState(modoInicial);
   const [enviando, setEnviando] = useState(false);
+  const [esperaLarga, setEsperaLarga] = useState(false);
 
   const finDelHistorialRef = useRef(null);
+
+  // Mientras se espera la respuesta, un temporizador activa el aviso largo. El `return` del
+  // efecto limpia el temporizador al terminar (como un CancellationToken / Dispose en .NET).
+  useEffect(() => {
+    if (!enviando) return undefined;
+    const temporizador = setTimeout(() => setEsperaLarga(true), MS_ANTES_DE_AVISO_LARGO);
+    return () => clearTimeout(temporizador);
+  }, [enviando]);
 
   useEffect(() => {
     finDelHistorialRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -93,6 +109,7 @@ function ChatScreen({ tenantId, tenantNombre, embed, modoInicial }) {
       ]);
     } finally {
       setEnviando(false);
+      setEsperaLarga(false); // el próximo envío vuelve a empezar con el mensaje corto
     }
   }
 
@@ -105,7 +122,13 @@ function ChatScreen({ tenantId, tenantNombre, embed, modoInicial }) {
       )}
 
       <div className="chat-screen__historial" role="log" aria-live="polite">
-        {mensajes.length === 0 && (
+        {mensajes.length === 0 && conectando && (
+          <div className="chat-screen__vacio">
+            <RobotEspera texto="Conectando con el asistente" />
+          </div>
+        )}
+
+        {mensajes.length === 0 && !conectando && (
           <p className="chat-screen__vacio">
             Estás conversando con el asistente de <strong>{tenantNombre}</strong>. Escribí tu
             pregunta para empezar.
@@ -123,8 +146,11 @@ function ChatScreen({ tenantId, tenantNombre, embed, modoInicial }) {
         ))}
 
         {enviando && (
-          <div className="burbuja burbuja--bot burbuja--cargando" aria-hidden="true">
-            <p className="burbuja__texto">...</p>
+          <div className="burbuja burbuja--bot burbuja--cargando">
+            <RobotEspera
+              pequeno
+              texto={esperaLarga ? "Estoy despertando, un momento más" : "Pensando"}
+            />
           </div>
         )}
 
