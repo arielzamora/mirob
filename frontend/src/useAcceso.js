@@ -17,6 +17,7 @@ export const CODIGOS_ACCESO_PERDIDO = new Set([
   "key_invalida",
   "key_vencida",
   "key_revocada",
+  "cupo_agotado",
 ]);
 
 const MARGEN_MS = 30_000; // se descarta la sesión guardada 30 s antes de que venza, por las dudas
@@ -96,6 +97,7 @@ export function useAcceso(tenantId, tenantListo, requiereKey) {
           token: respuesta.session_token,
           etiqueta: respuesta.etiqueta,
           expiraEn: Date.now() + respuesta.expires_in * 1000,
+          restantes: respuesta.remaining_questions, // null si la key no tiene cupo
         };
         guardarSesion(tenantId, nueva);
         setSesion(nueva);
@@ -117,6 +119,20 @@ export function useAcceso(tenantId, tenantListo, requiereKey) {
     [tenantId],
   );
 
+  // Después de cada respuesta el backend informa cuántas preguntas quedan: se guarda para mostrarlas
+  // y para que un F5 no vuelva a mostrar el número del momento de abrir el enlace.
+  const actualizarRestantes = useCallback(
+    (restantes) => {
+      setSesion((actual) => {
+        if (!actual) return actual;
+        const nueva = { ...actual, restantes };
+        guardarSesion(tenantId, nueva);
+        return nueva;
+      });
+    },
+    [tenantId],
+  );
+
   let fase;
   if (!tenantListo) fase = "esperando";
   else if (!requiereKey) fase = "no_requerida";
@@ -125,5 +141,13 @@ export function useAcceso(tenantId, tenantListo, requiereKey) {
   else if (error) fase = "error";
   else fase = "requerida";
 
-  return { fase, sessionToken: sesion?.token ?? null, etiqueta: sesion?.etiqueta ?? "", error, perderAcceso };
+  return {
+    fase,
+    sessionToken: sesion?.token ?? null,
+    etiqueta: sesion?.etiqueta ?? "",
+    preguntasRestantes: sesion?.restantes ?? null,
+    error,
+    perderAcceso,
+    actualizarRestantes,
+  };
 }

@@ -61,6 +61,13 @@
   font-size: 0.95rem;
 }
 
+.chat-screen__restantes {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .chat-screen__form {
   display: flex;
   align-items: center;

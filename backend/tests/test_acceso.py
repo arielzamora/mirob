@@ -50,6 +50,7 @@ class Entorno:
     cliente: TestClient
     servicio: ServicioClaves
     reloj: RelojFalso
+    ruta_claves: Path
 
 
 @pytest.fixture
@@ -69,10 +70,11 @@ def entorno(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sample_dir: Path, g
         reindex_module.reindex(tenant_id, sample_dir)
 
     reloj = RelojFalso()
-    servicio = ServicioClaves(AlmacenClavesJson(tmp_path / "_keys" / "claves.json"), reloj)
+    ruta_claves = tmp_path / "_keys" / "claves.json"
+    servicio = ServicioClaves(AlmacenClavesJson(ruta_claves), reloj)
     app.dependency_overrides[obtener_servicio_claves] = lambda: servicio
     app.dependency_overrides[obtener_reloj] = lambda: reloj
-    yield Entorno(TestClient(app), servicio, reloj)
+    yield Entorno(TestClient(app), servicio, reloj, ruta_claves)
     app.dependency_overrides.pop(obtener_servicio_claves, None)
     app.dependency_overrides.pop(obtener_reloj, None)
 
@@ -323,3 +325,125 @@ def test_el_acceso_por_defecto_es_publico_y_el_contacto_en_blanco_no_cuenta(tmp_
 
     assert _cargar_config(tmp_path / "sin-acceso")[0].acceso == "publico"
     assert _cargar_config(tmp_path / "en-blanco")[0].contacto_acceso is None
+
+
+# --- Cupo y límites por key (grupo C) -----------------------------------------------------------
+
+
+def _usadas(entorno: Entorno, tenant_id: str = "cerrado") -> int:
+    return entorno.servicio.listar(tenant_id)[0].preguntas_usadas
+
+
+def test_cada_pregunta_cuenta_y_la_respuesta_dice_cuantas_quedan(entorno: Entorno, generador_falso):
+    _, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=3)
+    token = _canjear(entorno, key).json()["session_token"]
+
+    restantes = [_chat(entorno, token=token, modo="foundry").json()["remaining_questions"] for _ in range(3)]
+
+    assert restantes == [2, 1, 0]
+    assert _usadas(entorno) == 3
+
+
+def test_con_el_cupo_agotado_el_chat_responde_403_con_contacto_y_no_gasta_tokens(entorno: Entorno, generador_falso):
+    _, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=1)
+    token = _canjear(entorno, key).json()["session_token"]
+    _chat(entorno, token=token, modo="foundry")
+    llamadas_antes = len(generador_falso.llamadas)
+
+    respuesta = _chat(entorno, token=token, modo="foundry")
+
+    assert respuesta.status_code == 403
+    assert _codigo(respuesta) == "cupo_agotado"
+    assert CONTACTO in respuesta.json()["detail"]["mensaje"]
+    assert len(generador_falso.llamadas) == llamadas_antes  # la pregunta rechazada no llegó al modelo
+    assert _usadas(entorno) == 1
+
+
+def test_sin_cupo_propio_la_respuesta_no_trae_restantes_pero_se_cuenta(entorno: Entorno):
+    token = _sesion(entorno)
+
+    cuerpo = _chat(entorno, token=token).json()
+
+    assert cuerpo["remaining_questions"] is None
+    assert _usadas(entorno) == 1
+
+
+def test_un_tenant_publico_no_cuenta_ni_informa_restantes(entorno: Entorno):
+    cuerpo = _chat(entorno, "abierto").json()
+
+    assert cuerpo["remaining_questions"] is None
+
+
+def test_un_pedido_rechazado_por_falta_de_sesion_no_gasta_cupo(entorno: Entorno):
+    _, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=1)
+    token = _canjear(entorno, key).json()["session_token"]
+
+    assert _chat(entorno).status_code == 401  # sin sesión
+    assert _usadas(entorno) == 0
+    assert _chat(entorno, token=token).status_code == 200
+
+
+def test_si_el_tenant_no_tiene_contenido_la_pregunta_no_gasta_cupo(entorno: Entorno):
+    _crear_tenant(tenants_module.TENANTS_DIR, "vacio", acceso="access_key")
+    _, key = entorno.servicio.crear("vacio", "Ana", cupo_preguntas=1)
+    token = _canjear(entorno, key, "vacio").json()["session_token"]
+
+    assert _chat(entorno, "vacio", token=token).status_code == 503
+    assert _usadas(entorno, "vacio") == 0
+
+
+def test_una_key_no_puede_pasar_su_limite_por_minuto_y_la_rafaga_no_gasta_cupo(entorno: Entorno):
+    usar_limites(replace(LIMITES_HOLGADOS, key_por_minuto=2))
+    _, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=10)
+    token = _canjear(entorno, key).json()["session_token"]
+
+    codigos = [_chat(entorno, token=token).status_code for _ in range(4)]
+
+    assert codigos == [200, 200, 429, 429]
+    assert _usadas(entorno) == 2  # solo las respondidas gastaron cupo
+
+
+def test_el_limite_por_key_es_independiente_entre_keys(entorno: Entorno):
+    usar_limites(replace(LIMITES_HOLGADOS, key_por_minuto=1))
+    token_a = _sesion(entorno)
+    token_b = _sesion(entorno)
+
+    assert _chat(entorno, token=token_a).status_code == 200
+    assert _chat(entorno, token=token_a).status_code == 429
+    assert _chat(entorno, token=token_b).status_code == 200
+
+
+def test_abrir_el_enlace_con_el_cupo_agotado_avisa_de_entrada(entorno: Entorno):
+    registro, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=1)
+    entorno.servicio.consumir_pregunta(registro.key_id, "cerrado")
+
+    respuesta = _canjear(entorno, key)
+
+    assert respuesta.status_code == 403
+    assert _codigo(respuesta) == "cupo_agotado"
+
+
+def test_el_canje_cuenta_accesos_e_informa_las_preguntas_restantes(entorno: Entorno):
+    registro, key = entorno.servicio.crear("cerrado", "Ana", cupo_preguntas=5)
+
+    primero = _canjear(entorno, key).json()
+    entorno.reloj.avanzar(hours=1)
+    _canjear(entorno, key)
+
+    guardada = entorno.servicio.listar("cerrado")[0]
+    assert primero["remaining_questions"] == 5
+    assert guardada.accesos == 2
+    assert guardada.ultimo_acceso_en == INICIO + timedelta(hours=1)
+
+
+def test_nunca_se_guarda_el_texto_de_las_preguntas(entorno: Entorno):
+    token = _sesion(entorno)
+    entorno.cliente.post(
+        "/api/v1/chat",
+        json={"tenant_id": "cerrado", "message": "mi dato secreto 12345 quiero saber", "mode": "raw"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    en_disco = entorno.ruta_claves.read_text(encoding="utf-8")
+
+    assert "secreto" not in en_disco and "12345" not in en_disco

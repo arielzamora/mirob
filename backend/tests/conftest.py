@@ -156,6 +156,7 @@ LIMITES_HOLGADOS = Limites(
     foundry_por_hora=100_000,
     admin_por_minuto=100_000,
     acceso_por_minuto=100_000,
+    key_por_minuto=100_000,
     tope_diario_global=10**9,
 )
 

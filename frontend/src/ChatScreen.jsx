@@ -38,6 +38,8 @@ function armarHistorial(mensajes) {
 // arrancando); se muestra el robot en lugar del saludo, pero igual se puede escribir.
 // `sessionToken` = sesión del acceso por access key (solo en tenants privados).
 // `onAccesoPerdido(error)` se llama si el backend dice que la sesión/key ya no sirve.
+// `preguntasRestantes` = preguntas que le quedan a la key (null si no tiene cupo); el padre lo
+// actualiza con `onPreguntasRestantes` después de cada respuesta.
 function ChatScreen({
   tenantId,
   tenantNombre,
@@ -46,6 +48,8 @@ function ChatScreen({
   conectando = false,
   sessionToken = null,
   onAccesoPerdido = null,
+  preguntasRestantes = null,
+  onPreguntasRestantes = null,
 }) {
   // Historial en estado local (ver CLAUDE.md: nada de persistencia todavía).
   // Se pierde al recargar la página — es intencional en esta etapa.
@@ -95,6 +99,9 @@ function ChatScreen({
         conversationHistory,
         sessionToken,
       });
+      if (onPreguntasRestantes && resultado.remaining_questions != null) {
+        onPreguntasRestantes(resultado.remaining_questions);
+      }
       setMensajes((previos) => [
         ...previos,
         {
@@ -174,6 +181,14 @@ function ChatScreen({
 
         <div ref={finDelHistorialRef} />
       </div>
+
+      {preguntasRestantes !== null && (
+        <p className="chat-screen__restantes" role="status">
+          {preguntasRestantes === 0
+            ? "Esa fue tu última pregunta."
+            : `Te ${preguntasRestantes === 1 ? "queda 1 pregunta" : `quedan ${preguntasRestantes} preguntas`}.`}
+        </p>
+      )}
 
       <form className="chat-screen__form" onSubmit={handleSubmit}>
         <label className="chat-screen__campo chat-screen__campo--input" htmlFor="pregunta-input">

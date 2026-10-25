@@ -20,9 +20,17 @@ from app.accesskeys import (
     AlmacenClavesError,
     ClaveRevocada,
     ClaveVencida,
+    CupoAgotado,
     ServicioClaves,
 )
-from app.api.dependencias import limitar_acceso, obtener_reloj, obtener_servicio_claves, resolver_tenant
+from app.api.dependencias import (
+    limitar_acceso,
+    obtener_reloj,
+    obtener_servicio_claves,
+    resolver_tenant,
+    responder_429,
+)
+from app.finops import EstadoLimites
 from app.tenants import ACCESO_POR_KEY, TenantConfig
 
 logger = logging.getLogger(__name__)
@@ -55,6 +63,10 @@ def _errores_de_clave(error: AccessKeyError, tenant: TenantConfig) -> HTTPExcept
         return _error(403, "key_revocada", _mensaje_con_contacto("Esta access key fue revocada.", tenant))
     if isinstance(error, ClaveVencida):
         return _error(403, "key_vencida", _mensaje_con_contacto("Esta access key venció.", tenant))
+    if isinstance(error, CupoAgotado):
+        return _error(
+            403, "cupo_agotado", _mensaje_con_contacto("Llegaste al límite de preguntas de tu access key.", tenant)
+        )
     if isinstance(error, AlmacenClavesError):
         logger.error("No se pudo leer el almacén de access keys.")
         return _error(503, "acceso_no_disponible", "El acceso por access key no está disponible por el momento.")
@@ -77,6 +89,7 @@ class AccesoResponse(BaseModel):
     expires_in: int  # segundos de vida de la sesión
     etiqueta: str  # a quién se le dio la key (la ve la propia persona: sirve para saludarla)
     key_expires_at: datetime
+    remaining_questions: int | None = None  # preguntas que le quedan; None si la key no tiene cupo
 
 
 @router.post("/acceso", response_model=AccesoResponse, dependencies=[Depends(limitar_acceso)])
@@ -102,6 +115,11 @@ def acceso(
     except AccessKeyError as error:
         raise _errores_de_clave(error, tenant) from error
 
+    try:
+        registro = servicio.registrar_acceso(registro.key_id)  # anota la entrada (contador y fecha, nada más)
+    except AccessKeyError as error:
+        raise _errores_de_clave(error, tenant) from error
+
     ahora = reloj()
     token, expira_en = sesiones.emitir(registro, secreto, ahora, duracion)
     return AccesoResponse(
@@ -110,6 +128,7 @@ def acceso(
         expires_in=max(0, int((expira_en - ahora).total_seconds())),
         etiqueta=registro.etiqueta,
         key_expires_at=registro.vence_en,
+        remaining_questions=registro.preguntas_restantes(),
     )
 
 
@@ -131,14 +150,15 @@ def exigir_acceso_al_chat(
     autorizacion: str | None,
     servicio: ServicioClaves,
     reloj: Callable[[], datetime],
-) -> None:
-    """No hace nada si el tenant es público. Si exige access key, deja pasar solo con una sesión válida.
+) -> str | None:
+    """Si el tenant es público devuelve None. Si exige access key, deja pasar solo con una sesión válida
+    y devuelve el key_id de esa sesión (para contar la pregunta contra su cupo).
 
     Comprueba, en este orden: que haya sesión, que su firma sea auténtica y no esté vencida, que sea de ESTE
     tenant y que la key detrás siga vigente (así una revocación corta el acceso al instante).
     """
     if tenant.acceso != ACCESO_POR_KEY:
-        return
+        return None
 
     token = _token_bearer(autorizacion)
     if token is None:
@@ -157,6 +177,22 @@ def exigir_acceso_al_chat(
 
     try:
         servicio.verificar_vigente(sesion.key_id, tenant.tenant_id)
+    except AccessKeyError as error:
+        raise _errores_de_clave(error, tenant) from error
+    return sesion.key_id
+
+
+def gastar_pregunta(tenant: TenantConfig, key_id: str, servicio: ServicioClaves, estado: EstadoLimites) -> int | None:
+    """Cuenta UNA pregunta contra la access key. Devuelve cuántas le quedan (None si la key no tiene cupo).
+
+    Primero el límite de pedidos por minuto de la key (una ráfaga no gasta cupo, solo recibe 429) y recién
+    después el cupo. Solo se guarda un número y una fecha: nunca el texto de la pregunta.
+    """
+    espera = estado.por_key.intentar(key_id)
+    if espera is not None:
+        raise responder_429(espera, "Demasiadas preguntas seguidas con esta access key. Esperá un momento.")
+    try:
+        return servicio.consumir_pregunta(key_id, tenant.tenant_id).preguntas_restantes()
     except AccessKeyError as error:
         raise _errores_de_clave(error, tenant) from error
 

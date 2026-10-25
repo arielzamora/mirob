@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.accesskeys import ServicioClaves
-from app.api.acceso import encabezado_autorizacion, exigir_acceso_al_chat
+from app.api.acceso import encabezado_autorizacion, exigir_acceso_al_chat, gastar_pregunta
 from app.api.dependencias import (
     ip_del_cliente,
     limitar_chat,
@@ -112,6 +112,8 @@ class ChatResponse(BaseModel):
     usage: UsoTokens
     latency_ms: float | None = None  # de la llamada al LLM; None si no se llamó
     deployment: str | None = None  # con qué deployment respondió; None si no se llamó
+    # Preguntas que le quedan a la access key después de esta; None si el tenant es público o la key no tiene cupo.
+    remaining_questions: int | None = None
 
 
 # --- Endpoint -------------------------------------------------------------
@@ -144,7 +146,7 @@ def chat(
 
     # Si el tenant exige access key, sin una sesión válida no se sigue (ni se toca el índice ni el LLM).
     # En un tenant público esta línea no hace nada.
-    exigir_acceso_al_chat(tenant, autorizacion, servicio_claves, reloj)
+    key_id = exigir_acceso_al_chat(tenant, autorizacion, servicio_claves, reloj)
 
     state = get_state(tenant.tenant_id)
     if state.corpus.empty:
@@ -152,6 +154,12 @@ def chat(
             status_code=503,
             detail="No hay contenido cargado para este asistente todavía.",
         )
+
+    # Con access key, esta pregunta se cuenta contra su cupo y su límite por minuto (solo un número: nunca
+    # el texto). Va acá, antes de buscar o llamar al modelo, para que una key agotada no gaste nada.
+    preguntas_restantes = None
+    if key_id is not None:
+        preguntas_restantes = gastar_pregunta(tenant, key_id, servicio_claves, estado)
 
     resultado = top_k(request.message, state.vectorizer, state.matrix, state.corpus, k=CANTIDAD_CHUNKS)
     mejor = resultado.iloc[0]
@@ -219,4 +227,5 @@ def chat(
         usage=usage,
         latency_ms=latency_ms,
         deployment=deployment,
+        remaining_questions=preguntas_restantes,
     )

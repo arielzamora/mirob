@@ -30,6 +30,8 @@ function ChatConAcceso({ tenantId, tenantNombre, requiereKey, tenantListo, embed
       conectando={!tenantListo}
       sessionToken={acceso.sessionToken}
       onAccesoPerdido={acceso.perderAcceso}
+      preguntasRestantes={acceso.preguntasRestantes}
+      onPreguntasRestantes={acceso.actualizarRestantes}
     />
   );
 }

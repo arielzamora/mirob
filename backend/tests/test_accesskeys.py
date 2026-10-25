@@ -19,6 +19,7 @@ from app.accesskeys import (
     ClaveInvalida,
     ClaveRevocada,
     ClaveVencida,
+    CupoAgotado,
     DatosInvalidos,
     ServicioClaves,
     hashear_clave,
@@ -294,3 +295,164 @@ def test_el_registro_no_expone_la_clave_ni_en_su_representacion():
     )
 
     assert "secreta" not in repr(registro)
+
+
+# --- Contadores y cupo (grupo C) ------------------------------------------------
+
+
+def test_consumir_pregunta_suma_una_y_guarda_cuando_fue(servicio, reloj):
+    registro, _ = servicio.crear(TENANT, "A", cupo_preguntas=3)
+    reloj.avanzar(minutes=5)
+
+    actualizada = servicio.consumir_pregunta(registro.key_id, TENANT)
+
+    assert actualizada.preguntas_usadas == 1
+    assert actualizada.preguntas_restantes() == 2
+    assert actualizada.ultima_pregunta_en == INICIO + timedelta(minutes=5)
+
+
+def test_con_el_cupo_agotado_ya_no_se_puede_preguntar_ni_abrir_sesion(servicio):
+    registro, clave = servicio.crear(TENANT, "A", cupo_preguntas=2)
+    servicio.consumir_pregunta(registro.key_id, TENANT)
+    servicio.consumir_pregunta(registro.key_id, TENANT)
+
+    with pytest.raises(CupoAgotado):
+        servicio.consumir_pregunta(registro.key_id, TENANT)
+    with pytest.raises(CupoAgotado):
+        servicio.validar(clave, TENANT)
+    # Un pedido rechazado por cupo no suma nada.
+    assert servicio.listar(TENANT)[0].preguntas_usadas == 2
+
+
+def test_sin_cupo_propio_igual_se_cuentan_las_preguntas(servicio):
+    registro, _ = servicio.crear(TENANT, "A")
+
+    for _ in range(5):
+        actualizada = servicio.consumir_pregunta(registro.key_id, TENANT)
+
+    assert actualizada.preguntas_usadas == 5
+    assert actualizada.preguntas_restantes() is None
+    assert actualizada.cupo_agotado() is False
+
+
+def test_consumir_exige_key_vigente_del_mismo_tenant(servicio, reloj):
+    revocada, _ = servicio.crear(TENANT, "A", cupo_preguntas=5)
+    vencida, _ = servicio.crear(TENANT, "B", cupo_preguntas=5, dias_vigencia=1)
+    servicio.revocar(revocada.key_id)
+    reloj.avanzar(days=1)
+
+    with pytest.raises(ClaveRevocada):
+        servicio.consumir_pregunta(revocada.key_id, TENANT)
+    with pytest.raises(ClaveVencida):
+        servicio.consumir_pregunta(vencida.key_id, TENANT)
+    with pytest.raises(ClaveInvalida):
+        servicio.consumir_pregunta(vencida.key_id, OTRO_TENANT)
+    with pytest.raises(ClaveInvalida):
+        servicio.consumir_pregunta("deadbeef", TENANT)
+
+
+def test_registrar_acceso_cuenta_las_entradas_y_la_ultima_fecha(servicio, reloj):
+    registro, _ = servicio.crear(TENANT, "A")
+    assert registro.accesos == 0 and registro.ultimo_acceso_en is None
+
+    servicio.registrar_acceso(registro.key_id)
+    reloj.avanzar(hours=3)
+    actualizada = servicio.registrar_acceso(registro.key_id)
+
+    assert actualizada.accesos == 2
+    assert actualizada.ultimo_acceso_en == INICIO + timedelta(hours=3)
+    with pytest.raises(ClaveInvalida):
+        servicio.registrar_acceso("deadbeef")
+
+
+def test_los_contadores_sobreviven_a_un_reinicio(ruta, reloj):
+    primero = ServicioClaves(AlmacenClavesJson(ruta), reloj)
+    registro, _ = primero.crear(TENANT, "A", cupo_preguntas=10)
+    primero.registrar_acceso(registro.key_id)
+    primero.consumir_pregunta(registro.key_id, TENANT)
+
+    reiniciado = ServicioClaves(AlmacenClavesJson(ruta), reloj).listar(TENANT)[0]
+
+    assert (reiniciado.accesos, reiniciado.preguntas_usadas) == (1, 1)
+    assert reiniciado.ultima_pregunta_en == INICIO and reiniciado.ultimo_acceso_en == INICIO
+
+
+def test_un_archivo_anterior_a_los_contadores_se_sigue_leyendo(ruta, reloj):
+    # Formato del grupo A: sin accesos, sin fechas de uso.
+    ruta.parent.mkdir(parents=True)
+    ruta.write_text(
+        json.dumps(
+            {
+                "claves": [
+                    {
+                        "key_id": "abcd1234",
+                        "tenant_id": TENANT,
+                        "etiqueta": "Vieja",
+                        "hash_clave": hashear_clave("x"),
+                        "creada_en": INICIO.isoformat(),
+                        "vence_en": (INICIO + timedelta(days=14)).isoformat(),
+                        "revocada": False,
+                        "cupo_preguntas": 7,
+                        "preguntas_usadas": 2,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    clave = ServicioClaves(AlmacenClavesJson(ruta), reloj).listar()[0]
+
+    assert (clave.preguntas_usadas, clave.accesos, clave.ultimo_acceso_en) == (2, 0, None)
+    assert clave.preguntas_restantes() == 5
+
+
+def test_el_cupo_no_se_pasa_aunque_haya_muchos_hilos_a_la_vez(servicio):
+    registro, _ = servicio.crear(TENANT, "A", cupo_preguntas=10)
+    resultados: list[str] = []
+
+    def preguntar() -> None:
+        try:
+            servicio.consumir_pregunta(registro.key_id, TENANT)
+            resultados.append("ok")
+        except CupoAgotado:
+            resultados.append("agotado")
+
+    hilos = [threading.Thread(target=preguntar) for _ in range(40)]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join()
+
+    # Exactamente 10 pasaron: ninguna pisó la cuenta de otra.
+    assert resultados.count("ok") == 10
+    assert resultados.count("agotado") == 30
+    assert servicio.listar(TENANT)[0].preguntas_usadas == 10
+
+
+def test_si_la_transformacion_falla_no_se_guarda_nada(servicio, ruta):
+    registro, _ = servicio.crear(TENANT, "A")
+    antes = ruta.read_text(encoding="utf-8")
+    almacen = AlmacenClavesJson(ruta)
+
+    def falla(_clave):
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        almacen.modificar(registro.key_id, falla)
+
+    assert ruta.read_text(encoding="utf-8") == antes
+    assert almacen.modificar("inexistente", lambda c: c) is None
+
+
+def test_el_archivo_guarda_solo_numeros_y_fechas_de_uso(servicio, ruta):
+    registro, _ = servicio.crear(TENANT, "A", cupo_preguntas=5)
+    servicio.registrar_acceso(registro.key_id)
+    servicio.consumir_pregunta(registro.key_id, TENANT)
+
+    datos = json.loads(ruta.read_text(encoding="utf-8"))["claves"][0]
+
+    assert set(datos) == {
+        "key_id", "tenant_id", "etiqueta", "hash_clave", "creada_en", "vence_en", "revocada",
+        "cupo_preguntas", "preguntas_usadas", "accesos", "ultimo_acceso_en", "ultima_pregunta_en",
+    }  # fmt: skip
