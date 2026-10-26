@@ -41,6 +41,10 @@ param imageTag string
 @secure()
 param adminApiKey string = ''
 
+@description('Secreto con el que se firman las sesiones de las access keys (mínimo 32 caracteres). Si queda vacío, los tenants con acceso por key responden 503 (falla cerrado); los tenants públicos no se afectan.')
+@secure()
+param sessionSecret string = ''
+
 @description('Esfuerzo de razonamiento del modelo (none, minimal, low...). Vacío = no se envía.')
 param reasoningEffort string = ''
 
@@ -169,6 +173,18 @@ var baseEnv = [
 var adminEnv = empty(adminApiKey) ? [] : [
   { name: 'MIROB_ADMIN_API_KEY', secretRef: 'admin-api-key' }
 ]
+// Firma de las sesiones de las access keys (ver ADR 0010). Va como secreto de Container Apps, nunca como valor en claro.
+var sessionEnv = empty(sessionSecret) ? [] : [
+  { name: 'MIROB_SESSION_SECRET', secretRef: 'session-secret' }
+]
+var secretos = concat(
+  empty(adminApiKey) ? [] : [
+    { name: 'admin-api-key', value: adminApiKey }
+  ],
+  empty(sessionSecret) ? [] : [
+    { name: 'session-secret', value: sessionSecret }
+  ]
+)
 var reasoningEnv = empty(reasoningEffort) ? [] : [
   { name: 'FOUNDRY_REASONING_EFFORT', value: reasoningEffort }
 ]
@@ -188,9 +204,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8000
         allowInsecure: false // HTTP se redirige a HTTPS
       }
-      secrets: empty(adminApiKey) ? [] : [
-        { name: 'admin-api-key', value: adminApiKey }
-      ]
+      secrets: secretos
     }
     template: {
       containers: [
@@ -201,7 +215,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
-          env: concat(baseEnv, adminEnv, reasoningEnv)
+          env: concat(baseEnv, adminEnv, sessionEnv, reasoningEnv)
           volumeMounts: [
             // data/sample (perfil ficticio) viene en la imagen; los tenants reales, del share.
             { volumeName: 'tenants-data', mountPath: '/app/data/tenants' }

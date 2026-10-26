@@ -8,4 +8,5 @@ param chatDeploymentName = 'mirob-chat'
 
 param imageTag = readEnvironmentVariable('IMAGE_TAG', 'latest')
 param adminApiKey = readEnvironmentVariable('MIROB_ADMIN_API_KEY', '')
+param sessionSecret = readEnvironmentVariable('MIROB_SESSION_SECRET', '')
 param reasoningEffort = readEnvironmentVariable('FOUNDRY_REASONING_EFFORT', '')

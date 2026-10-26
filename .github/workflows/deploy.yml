@@ -87,6 +87,7 @@ jobs:
           # main.bicepparam lee estas variables (ver infra/main.bicepparam).
           IMAGE_TAG: ${{ needs.imagen.outputs.tag }}
           MIROB_ADMIN_API_KEY: ${{ secrets.MIROB_ADMIN_API_KEY }}
+          MIROB_SESSION_SECRET: ${{ secrets.MIROB_SESSION_SECRET }}
           FOUNDRY_REASONING_EFFORT: ${{ vars.FOUNDRY_REASONING_EFFORT }}
         run: |
           # what-if: muestra qué cambiaría (queda en el log para auditar).

@@ -51,7 +51,7 @@ backend/
     sample/          # perfil ficticio versionado (tenant "demo" y tests)
   tests/             # pytest
 frontend/            # React + Vite: chat y pantalla de carga
-docs/adr/            # decisiones de arquitectura (9 ADR)
+docs/adr/            # decisiones de arquitectura (10 ADR)
 docs/arquitectura/   # diagramas C4 en Mermaid
 infra/               # Bicep: Container Apps, Azure Files, Static Web Apps (ver abajo)
 ```
@@ -166,6 +166,7 @@ Detalle y motivos en [ADR 0003](docs/adr/0003-multitenancy-y-aislamiento.md) y [
 - **Límites por IP** (429 con `Retry-After`): 20 pedidos de chat por minuto, 30 llamadas al LLM por hora, 10 pedidos al admin por minuto. Detrás de un proxy, definí `MIROB_TRUST_PROXY=1`.
 - **Tope diario de tokens:** 200.000 por día UTC en total (y `tope_diario_tokens` opcional por tenant). Al alcanzarlo, solo el modo foundry responde 429.
 - **Límite conocido:** los contadores viven en memoria del proceso (por réplica). Con varias réplicas el tope real es mayor.
+- **Tenants privados (access keys):** un tenant con `"acceso": "access_key"` en su `tenant.json` solo responde con una sesión. Se entrega un enlace `https://<front>/?tenant=<id>&embed=1#k=<key>` (la key va en el fragmento: no viaja al servidor), el front la canjea una vez por una sesión de 2 horas (`POST /api/v1/acceso`) y el chat usa esa sesión. Cada key tiene etiqueta, vencimiento (14 días por defecto), cupo de preguntas opcional y su propio límite por minuto; se crean, ven y revocan desde la pestaña **Access keys** del front (o `/admin/keys`). Solo se guardan contadores, nunca el texto de las preguntas. Requiere `MIROB_SESSION_SECRET`; sin él un tenant privado responde 503 en lugar de quedar abierto. Detalle y motivos en [ADR 0010](docs/adr/0010-access-keys-de-reclutadores.md).
 
 ## Docker, infraestructura y CI/CD
 
@@ -189,6 +190,7 @@ python -m pytest -q
 - `test_api.py` llama a la API en memoria con `TestClient` (sin abrir puertos); la subida de archivos escribe en una carpeta temporal. Cubre la autenticación del admin y los intentos de path traversal.
 - `test_tenants.py` prueba la validación del `tenant_id`, las configuraciones versionadas y el aislamiento entre tenants.
 - `test_uploads.py` prueba la validación de nombres y contenido de los archivos subidos.
+- `test_accesskeys.py`, `test_sesiones.py`, `test_acceso.py` y `test_admin_keys.py` prueban las access keys: creación, hash, vencimiento, revocación, cupos atómicos con varios hilos, sesiones firmadas, el chat protegido y los endpoints del admin. Usan relojes falsos y carpetas temporales.
 
 ## Limitaciones conocidas
 
@@ -223,3 +225,4 @@ Diagramas C4 (contexto, contenedores, componentes y despliegue) y flujos clave: 
 - [ADR 0007 — Widget embebible y cadena de iframes](docs/adr/0007-widget-embebible-y-cadena-de-iframes.md)
 - [ADR 0008 — Foundry: autenticación, modelo y comportamiento del asistente](docs/adr/0008-foundry-autenticacion-modelo-y-prompts.md)
 - [ADR 0009 — Contenido de los tenants y reindexado automático](docs/adr/0009-contenido-de-tenants-y-reindexado-automatico.md)
+- [ADR 0010 — Acceso de reclutadores con access keys, sesiones firmadas y cupos](docs/adr/0010-access-keys-de-reclutadores.md)

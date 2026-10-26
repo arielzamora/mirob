@@ -61,6 +61,14 @@ En el repositorio → *Settings*:
 1. **Environments → New environment → `production`**. Opcional: *Required reviewers* para aprobar cada deploy a mano.
 2. **Secrets and variables → Actions → Variables** (no son secretas): `AZURE_CLIENT_ID` (el `appId` de arriba), `AZURE_TENANT_ID` y `AZURE_SUBSCRIPTION_ID`. Opcional: `FOUNDRY_REASONING_EFFORT` (por ejemplo `minimal`).
 3. **Environments → production → Environment secrets**: `MIROB_ADMIN_API_KEY` (generala con `python -c "import secrets; print(secrets.token_urlsafe(32))"`). Es la clave de `/admin/content` y `/admin/reindex`.
+4. **Environments → production → Environment secrets**: `MIROB_SESSION_SECRET`, el secreto con el que se firman las sesiones de las access keys (ver [ADR 0010](../docs/adr/0010-access-keys-de-reclutadores.md)). Se puede crear sin mostrarlo en pantalla:
+
+```powershell
+$secreto = python -c "import secrets; print(secrets.token_urlsafe(48))"
+gh secret set MIROB_SESSION_SECRET --env production --repo arielzamora/mirob --body $secreto
+```
+
+Si falta, los tenants con `"acceso": "access_key"` responden 503 (no quedan abiertos) y los públicos siguen funcionando. Cambiarlo cierra todas las sesiones abiertas (las keys no se ven afectadas).
 
 ### 3. Primer deploy
 
@@ -73,20 +81,36 @@ Hacé push a `main` (o *Actions → Deploy → Run workflow*). Los paquetes nuev
 
 El contenido real no está en el repo ni en la imagen: vive en el share `mirob-data` (Azure Files), con una carpeta por tenant (`ariel-zamora/`, `digital-zur/`).
 
+Se sube **un tenant por vez**, con `--destination-path`:
+
 ```powershell
 $rg = "rg-mirob"
 $st = az storage account list -g $rg --query "[0].name" -o tsv
 $key = az storage account keys list -n $st -g $rg --query "[0].value" -o tsv
-az storage file upload-batch --account-name $st --account-key $key --destination mirob-data --source backend\data\tenants
+az storage file upload-batch --account-name $st --account-key $key --destination mirob-data --destination-path digital-zur --source backend\data\tenants\digital-zur
 ```
 
-Después hay que avisarle al backend (indexa en memoria; no detecta cambios solo):
+⚠️ **No subas la carpeta `backend\data\tenants` entera:** en el share vive también `_keys/claves.json` (las access keys y sus contadores), y una copia local lo pisaría. Y **no subas el contenido de un tenant privado (`ariel-zamora`) antes de que esté desplegado su acceso por key**: ver la sección siguiente.
+
+El backend detecta los archivos nuevos solo, en 30 segundos como máximo (ADR 0009). Para forzarlo al instante:
 
 ```powershell
 curl -X POST https://<api>/admin/reindex -H "X-API-Key: <tu-clave>"
 ```
 
 La URL de la API (`<api>`) está en el log del job *Desplegar infraestructura* y en el portal (*Container Apps → ca-mirob-api*).
+
+## Acceso de reclutadores (access keys)
+
+Orden **obligatorio** para publicar un tenant privado como `ariel-zamora` (si se cambia, el contenido real queda público un rato):
+
+1. Crear el secreto `MIROB_SESSION_SECRET` en GitHub (paso 4 de la preparación).
+2. Hacer push a `main` con `"acceso": "access_key"` en `backend/tenants/ariel-zamora/tenant.json`. Esperar a que el deploy termine.
+3. Comprobar que el tenant ya pide key: `GET https://<api>/api/v1/tenants` debe mostrar `"acceso": "access_key"` para `ariel-zamora`, y un chat sin sesión debe responder 401.
+4. **Recién entonces** subir el contenido: `--destination-path ariel-zamora --source backend\data\tenants\ariel-zamora`.
+5. Crear una key desde la pestaña **Access keys** del front (o con `POST /admin/keys`), copiar el enlace que aparece y enviarlo. La key se muestra **una sola vez**; si se pierde, se revoca y se crea otra.
+
+Para cortar un acceso: pestaña *Access keys* → **Revocar** (efecto inmediato). El tope de preguntas y el vencimiento se eligen al crear la key.
 
 ## Publicar el widget en digitalzur.com.ar
 
@@ -107,4 +131,5 @@ La URL de la API (`<api>`) está en el log del job *Desplegar infraestructura* y
 - Una sola réplica del backend (índice en memoria y límites por proceso). Ver [ADR 0003](../docs/adr/0003-multitenancy-y-aislamiento.md) y [0004](../docs/adr/0004-gobierno-de-costos-de-ia.md).
 - Escala a cero: la primera consulta tras un rato sin tráfico tarda unos segundos más.
 - El share se monta con la clave de la cuenta de almacenamiento (limitación de Container Apps con Azure Files).
+- Las access keys viven en un JSON del share (`_keys/claves.json`): asumen una sola réplica. Ver [ADR 0010](../docs/adr/0010-access-keys-de-reclutadores.md).
 - Las actions están fijadas por versión mayor (`@v4`), no por SHA; Dependabot propone las actualizaciones.
