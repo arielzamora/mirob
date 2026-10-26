@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { getTenants } from "./api.js";
 import ChatConAcceso from "./ChatConAcceso.jsx";
+import AdminLogin from "./AdminLogin.jsx";
 import AdminScreen from "./AdminScreen.jsx";
 import KeysScreen from "./KeysScreen.jsx";
+import Portada from "./Portada.jsx";
 import { MODOS } from "./modos.js";
 
 // Pocas pantallas (ver CLAUDE.md: nada de router todavía, sería
@@ -20,6 +22,9 @@ const TABS = [
 //                         Sirve para el <iframe> del sitio y también como enlace directo.
 //   &mode=raw|humanized|foundry   modo inicial (en embed, por defecto "foundry")
 //   &header=0             en embed, sin la barra superior (el sitio que lo embebe pone la suya)
+// Sin embed=1 el front es el panel de administración: queda oculto tras un minilogin (la clave de admin,
+// validada por la API) y solo se llega a ese login con #admin al final de la URL. Quien abre la URL sin nada
+// de eso ve una portada neutra.
 const parametros = new URLSearchParams(window.location.search);
 const EMBED = parametros.get("embed") === "1";
 const SIN_BARRA = EMBED && parametros.get("header") === "0";
@@ -42,6 +47,16 @@ function App() {
   // API key del admin: la comparten "Cargar contenido" y "Access keys" para no tipearla dos veces.
   // Vive solo en memoria (nunca en localStorage ni en la URL): al recargar la página se pierde.
   const [apiKeyAdmin, setApiKeyAdmin] = useState("");
+  // true cuando la API aceptó la clave de admin: recién entonces se muestra el panel.
+  const [adminDesbloqueado, setAdminDesbloqueado] = useState(false);
+  // true si la URL termina en #admin: muestra el minilogin en lugar de la portada.
+  const [pideAdmin, setPideAdmin] = useState(window.location.hash === "#admin");
+
+  useEffect(() => {
+    const alCambiarElHash = () => setPideAdmin(window.location.hash === "#admin");
+    window.addEventListener("hashchange", alCambiarElHash);
+    return () => window.removeEventListener("hashchange", alCambiarElHash);
+  }, []);
 
   // Carga la lista de tenants habilitados al abrir la página.
   useEffect(() => {
@@ -128,6 +143,24 @@ function App() {
         embed={EMBED}
         modoInicial={MODO_INICIAL}
       />
+    );
+  }
+
+  function handleEntrarAdmin(clave) {
+    setApiKeyAdmin(clave);
+    setAdminDesbloqueado(true);
+    // Se saca el #admin de la URL: ya no hace falta y no queda a la vista.
+    const url = new URL(window.location.href);
+    url.hash = "";
+    window.history.replaceState(null, "", url);
+  }
+
+  // Sin embed y sin la clave de admin validada no se muestra el panel: portada o minilogin.
+  if (!EMBED && !adminDesbloqueado) {
+    return (
+      <div className="app">
+        <main className="app-main">{pideAdmin ? <AdminLogin onEntrar={handleEntrarAdmin} /> : <Portada />}</main>
+      </div>
     );
   }
 

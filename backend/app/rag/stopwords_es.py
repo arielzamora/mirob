@@ -29,4 +29,8 @@ STOPWORDS_ES: tuple[str, ...] = (
     # Verbos auxiliares y muy genéricos ("¿tienen?", "¿hacen?", "¿puedo?")
     "era", "eran", "es", "estan", "estar", "fue", "ha", "han", "hace", "hacen", "hay", "puedo",
     "pueden", "pueda", "sea", "ser", "son", "tiene", "tienen",
+    # Muletillas de una conversación ("¿Podrías decirme algún logro?", "Quiero saber si sabe Python"): no dicen
+    # de qué se habla, pero coinciden con cualquier chunk que las tenga en sus variantes de pregunta.
+    "algun", "alguna", "decir", "decirme", "decime", "dime", "favor", "gustaria", "podes", "podria",
+    "podrias", "puede", "puedes", "quiero", "queria", "sabe", "sabes", "saber",
 )

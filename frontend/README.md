@@ -18,6 +18,7 @@ Ver el [README principal](../README.md) para levantar la API.
 | `&embed=1` | **Vista pública**: sin pestañas, sin selector de tenant ni de modo, sin detalle de auditoría. Modo `foundry` por defecto. Sirve para el `<iframe>` del sitio y como enlace directo. |
 | `&header=0` | En `embed`, oculta la barra superior (el sitio que lo embebe pone la suya). |
 | `&mode=raw\|humanized\|foundry` | Modo inicial (en `embed`, por defecto `foundry`; si no, `raw`). |
+| `#admin` | Solo sin `embed=1`: abre el minilogin del panel de administración (clave de admin, validada por la API). Sin eso, la URL muestra una portada neutra. |
 
 Ejemplo de widget para un sitio institucional:
 

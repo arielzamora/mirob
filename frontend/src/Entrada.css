@@ -1,0 +1,75 @@
+/* Pantallas de entrada del front: la portada neutra y el minilogin del admin. */
+.entrada {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.entrada__marca {
+  margin: 0;
+  font-size: 1.6rem;
+  color: var(--color-primary);
+}
+
+.entrada__texto {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.entrada__form {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.entrada__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.entrada__form input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.entrada__form button {
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.entrada__form button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.entrada__form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.entrada__error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.88rem;
+}

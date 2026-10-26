@@ -47,6 +47,18 @@ Opción 1, como solución **temporal**:
 - Un request sin clave igual llega a parsearse el cuerpo multipart antes de rechazarse;
   el tope de tamaño se aplica al leer el archivo, no antes.
 
+## Enmienda (2026-10-26): la misma clave es el minilogin del panel
+
+- **Rate limiting:** ya existe. El admin acepta 10 pedidos por minuto por IP (`MIROB_RATE_ADMIN_PER_MINUTE`), así que adivinar la
+  clave por internet es inviable aunque sea una frase elegida por mí y no una cadena aleatoria. Debe ser larga (varias
+  palabras al azar o 20+ caracteres) y no contener datos personales.
+- **El front ya no exhibe el panel.** Quien abre la URL sin `embed=1` ve una portada neutra. El panel (cargar contenido, access
+  keys, selector de modo) solo aparece tras un minilogin al que se llega con `#admin` al final de la URL, y que **valida el
+  servidor**: un `GET /admin/keys` que responde 200 únicamente con la clave correcta. Nada se compara en el navegador, así que
+  la clave no queda escrita en el JavaScript, que baja cualquiera (el repositorio es público). No es una defensa nueva, sino
+  una pantalla menos expuesta; la protección real sigue siendo la API.
+- Los enlaces de reclutadores y el widget (`embed=1`) no pasan por este login.
+
 ## Seguimiento
 
 - Parte 2.5: reemplazarla por autenticación propia (y rate limiting).

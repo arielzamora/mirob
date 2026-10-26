@@ -104,8 +104,9 @@ Tiene selector de tenant y switch de modo (Raw / Humanizado / Foundry); con `?te
 
 1. Copiá `backend/.env.example` a `backend/.env` y poné una clave en `MIROB_ADMIN_API_KEY`
    (la variable explica cómo generar una).
-2. Reiniciá la API. En la pantalla **Cargar contenido** del front se pide esa clave
-   (queda solo en memoria, se pierde al recargar). Por línea de comandos:
+2. Reiniciá la API. Abrí el front con `#admin` al final de la URL (por ejemplo `http://localhost:5173/#admin`): sin eso se
+   ve solo una portada. Ahí se pide esa clave, que valida la API; queda solo en memoria (se pierde al recargar) y se
+   comparte entre **Cargar contenido** y **Access keys**. Por línea de comandos:
 
 ```bash
 curl -X POST http://localhost:8000/admin/content -H "X-API-Key: <tu-clave>" -F "tenant_id=ariel-zamora" -F "file=@mi-contenido.md"

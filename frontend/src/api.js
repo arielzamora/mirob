@@ -111,10 +111,11 @@ async function pedirAdmin(ruta, apiKey, opciones, mensajePorDefecto) {
   return data;
 }
 
-// Las keys de un tenant, con estado y contadores de uso (nunca la key ni su hash).
+// Las keys de un tenant (o de todos si no se indica), con estado y contadores de uso (nunca la key ni su hash).
+// También sirve para comprobar una clave de admin: la API responde 200 solo si es la correcta.
 export function getAdminKeys(apiKey, tenantId) {
-  const consulta = new URLSearchParams({ tenant_id: tenantId });
-  return pedirAdmin(`/admin/keys?${consulta}`, apiKey, { method: "GET" }, "No se pudieron cargar las keys.");
+  const ruta = tenantId ? `/admin/keys?${new URLSearchParams({ tenant_id: tenantId })}` : "/admin/keys";
+  return pedirAdmin(ruta, apiKey, { method: "GET" }, "No se pudieron cargar las keys.");
 }
 
 // Crea una key. La respuesta trae la key en claro y el enlace: es la ÚNICA vez que se ven.
