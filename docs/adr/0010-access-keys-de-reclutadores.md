@@ -47,6 +47,18 @@ nunca puede empezar así). Se escribe a un archivo temporal y se renombra, bajo 
 **Un tenant elige su modo** en `tenant.json`: `"acceso": "publico"` (por defecto) o `"access_key"`. Un tenant privado
 **falla cerrado**: sin `MIROB_SESSION_SECRET` responde 503, no queda abierto.
 
+**Contenido del tenant `ariel-zamora`.** Vive en `backend/data/tenants/ariel-zamora/` (fuera de git) y se adaptó para
+reclutadores: certificaciones al día, sin datos de mi familia, con disponibilidad, modalidad de trabajo y datos de contacto
+(WhatsApp, LinkedIn y GitHub, con MiRob como ejemplo de trabajo). **El contacto y los perfiles viven en ese contenido
+privado y no en `tenant.json`**, porque `tenant.json` está en un repositorio público. Por eso el mensaje de una key
+vencida, revocada o sin cupo es genérico por defecto ("Pedí una nueva access key a quien te la envió") y `contacto_acceso`
+queda como opción. El prompt del tenant ofrece el GitHub cuando preguntan por proyectos o ejemplos de trabajo. Se calibró
+con 41 preguntas de reclutador (ver [ADR 0009](0009-contenido-de-tenants-y-reindexado-automatico.md)).
+
+**Orden de publicación.** El contenido real se sube a Azure **después** de desplegar el tenant con `"acceso": "access_key"` y
+de comprobar en vivo que un chat sin sesión responde 401. Subirlo antes lo dejaría público (orden detallado en
+`infra/README.md`).
+
 ## Opciones descartadas
 
 - **Chat abierto:** expone mi perfil real a cualquiera y a cualquier costo de tokens.
@@ -68,3 +80,5 @@ nunca puede empezar así). Se escribe a un archivo temporal y se renombra, bajo 
   defecto y hay cupo.
 - El admin sigue protegido por la API key compartida (ADR 0002). Un login propio para el admin quedó fuera de alcance.
 - El enlace con la key no debe pegarse en sitios públicos. Si se filtra, se revoca desde el admin.
+- El contacto personal (WhatsApp) solo lo ve quien entra con una key vigente; no está en el repositorio ni en el sitio de
+  DigitalZur, cuyo bot publica únicamente los emails de la empresa.
