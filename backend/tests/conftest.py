@@ -32,7 +32,8 @@ from app.reindex import SAMPLE_DIR
 # Tenant que lee el perfil ficticio (data/sample/) y tenant cuya carpeta es temporal.
 # Ambos existen en backend/tenants/ (configuración versionada).
 TENANT_DEMO = "demo"
-TENANT_AISLADO = "ariel-zamora"
+# Tiene que ser un tenant PÚBLICO: estos tests chatean sin sesión. "ariel-zamora" exige access key.
+TENANT_AISLADO = "digital-zur"
 
 
 @pytest.fixture(scope="session")

@@ -2,5 +2,6 @@
   "nombre": "Ariel Zamora",
   "umbral_similitud": 0.10,
   "origenes_permitidos": [],
+  "acceso": "access_key",
   "habilitado": true
 }

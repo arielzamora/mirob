@@ -447,3 +447,15 @@ def test_nunca_se_guarda_el_texto_de_las_preguntas(entorno: Entorno):
     en_disco = entorno.ruta_claves.read_text(encoding="utf-8")
 
     assert "secreto" not in en_disco and "12345" not in en_disco
+
+
+# --- Configuración real versionada ------------------------------------------------------------------
+
+
+def test_la_configuracion_real_de_los_tenants_define_quien_exige_key():
+    from app.tenants import obtener_tenant
+
+    # ariel-zamora tiene el contenido para reclutadores: nunca debe quedar público por un cambio de config.
+    assert obtener_tenant("ariel-zamora").acceso == "access_key"
+    assert obtener_tenant("digital-zur").acceso == "publico"
+    assert obtener_tenant("demo").acceso == "publico"

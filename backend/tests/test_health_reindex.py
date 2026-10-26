@@ -70,7 +70,8 @@ def test_reindex_sin_tenant_reindexa_todos_los_habilitados(
     assert {"demo", "ariel-zamora", "digital-zur"} <= set(cuerpo)
     assert "chocolateria" not in cuerpo  # deshabilitado
     assert cuerpo["demo"] > 0  # el perfil ficticio sí tiene contenido
-    assert cuerpo["ariel-zamora"] == 0  # carpeta vacía
+    assert cuerpo["ariel-zamora"] == 0  # sin carpeta de contenido
+    assert cuerpo[TENANT_AISLADO] == 0  # carpeta temporal vacía
 
 
 def test_reindex_exige_la_api_key(client_aislado: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch) -> None:
