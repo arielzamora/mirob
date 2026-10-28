@@ -10,10 +10,11 @@ import logging
 import threading
 
 from azure.core.exceptions import AzureError
+from azure.identity import DefaultAzureCredential
 from openai import OpenAI, OpenAIError
 
 from app.foundry.chat import generar
-from app.foundry.client import crear_cliente_proyecto, crear_credencial, obtener_cliente_openai
+from app.foundry.client import crear_cliente_proyecto, crear_credencial, obtener_cliente_openai, pedir_token
 from app.foundry.config import FoundryConfigError, FoundrySettings
 from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError, FoundryNoConfigurado
 
@@ -27,6 +28,8 @@ class FoundryGenerador:
         # None: se lee de las variables de entorno en el primer uso (ver FoundrySettings.from_env).
         self._settings = settings
         self._cliente: OpenAI | None = None
+        # Se guarda para poder pedirle el token por adelantado (ver precalentar).
+        self._credencial: DefaultAzureCredential | None = None
         # FastAPI atiende los endpoints síncronos en varios hilos a la vez: el lock evita
         # que dos requests simultáneos creen dos clientes (como un lock en C#).
         self._lock = threading.Lock()
@@ -39,9 +42,26 @@ class FoundryGenerador:
                 except FoundryConfigError as error:
                     raise FoundryNoConfigurado(str(error)) from error
             if self._cliente is None:
-                proyecto = crear_cliente_proyecto(self._settings, crear_credencial())
+                credencial = crear_credencial()
+                proyecto = crear_cliente_proyecto(self._settings, credencial)
                 self._cliente = obtener_cliente_openai(proyecto)
+                self._credencial = credencial
             return self._cliente, self._settings
+
+    def precalentar(self) -> None:
+        """Deja listos el cliente y el token de Entra ID antes de la primera pregunta (no llama al modelo).
+
+        Sin esto, la primera respuesta paga la creación de los clientes y la búsqueda del token. Nunca
+        lanza: si Foundry no está configurado o falla la autenticación, se avisa en el log y el primer
+        pedido real lo intentará de nuevo (y dará el error de siempre).
+        """
+        try:
+            self._obtener_cliente()
+            if self._credencial is not None:
+                pedir_token(self._credencial)
+        except (FoundryNoConfigurado, AzureError, OpenAIError) as error:
+            # Solo el TIPO del error: el mensaje podría traer datos del entorno.
+            logger.warning("No se pudo precalentar Foundry: %s", type(error).__name__)
 
     def generar(self, instrucciones: str, mensaje: str, max_tokens_salida: int = MAX_TOKENS_SALIDA) -> ChatResult:
         try:

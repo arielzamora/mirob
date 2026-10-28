@@ -26,6 +26,21 @@ def crear_credencial() -> DefaultAzureCredential:
     return DefaultAzureCredential()
 
 
+# Alcance (scope) del token de Entra ID para Foundry. Verificado en el paquete instalado
+# (azure/ai/projects/_patch.py): es el que usa get_openai_client() para armar su token.
+ALCANCE_FOUNDRY = "https://ai.azure.com/.default"
+
+
+def pedir_token(credencial: DefaultAzureCredential) -> None:
+    """Pide (y deja en la caché de la credencial) el token de Entra ID, SIN llamar al modelo.
+
+    La primera vez DefaultAzureCredential prueba varios mecanismos hasta dar con uno que
+    funcione (en Azure, la Managed Identity) y eso tarda segundos. Hacerlo al arrancar evita
+    que lo pague la primera pregunta de una persona. No cuesta tokens del modelo.
+    """
+    credencial.get_token(ALCANCE_FOUNDRY)
+
+
 def crear_cliente_proyecto(settings: FoundrySettings, credencial: DefaultAzureCredential) -> AIProjectClient:
     """Paso 2 — Cliente del proyecto de Foundry.
 
