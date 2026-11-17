@@ -14,7 +14,13 @@ from azure.identity import DefaultAzureCredential
 from openai import OpenAI, OpenAIError
 
 from app.foundry.chat import generar
-from app.foundry.client import crear_cliente_proyecto, crear_credencial, obtener_cliente_openai, pedir_token
+from app.foundry.client import (
+    crear_cliente_proyecto,
+    crear_credencial,
+    obtener_cliente_openai,
+    obtener_cliente_openai_recurso,
+    pedir_token,
+)
 from app.foundry.config import FoundryConfigError, FoundrySettings
 from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError, FoundryNoConfigurado
 
@@ -28,6 +34,9 @@ class FoundryGenerador:
         # None: se lee de las variables de entorno en el primer uso (ver FoundrySettings.from_env).
         self._settings = settings
         self._cliente: OpenAI | None = None
+        # Los embeddings salen por otra ruta (la del recurso) que el chat (la del proyecto): ver client.py.
+        self._cliente_embeddings: OpenAI | None = None
+        self._proyecto = None  # el AIProjectClient: de él salen los dos clientes OpenAI
         # Se guarda para poder pedirle el token por adelantado (ver precalentar).
         self._credencial: DefaultAzureCredential | None = None
         # FastAPI atiende los endpoints síncronos en varios hilos a la vez: el lock evita
@@ -45,16 +54,25 @@ class FoundryGenerador:
                 credencial = crear_credencial()
                 proyecto = crear_cliente_proyecto(self._settings, credencial)
                 self._cliente = obtener_cliente_openai(proyecto)
+                self._proyecto = proyecto
                 self._credencial = credencial
             return self._cliente, self._settings
 
     def obtener_cliente(self) -> tuple[OpenAI, FoundrySettings]:
-        """El cliente OpenAI y la configuración, creados una sola vez.
-
-        Es público porque FoundryEmbeddings comparte este cliente (y su credencial, y su token) en vez de crear
-        otro: un solo `DefaultAzureCredential` para todo el proceso.
-        """
+        """El cliente OpenAI del chat (ruta del proyecto) y la configuración, creados una sola vez."""
         return self._obtener_cliente()
+
+    def obtener_cliente_embeddings(self) -> tuple[OpenAI, FoundrySettings]:
+        """El cliente OpenAI para embeddings (ruta del recurso) y la configuración, creado una sola vez.
+
+        Es público porque FoundryEmbeddings lo recibe como su fuente de cliente. Comparte con el del chat el
+        AIProjectClient y, con él, el `DefaultAzureCredential` y su token: un solo login para todo el proceso.
+        """
+        _, settings = self._obtener_cliente()  # asegura la configuración, la credencial y el proyecto
+        with self._lock:
+            if self._cliente_embeddings is None:
+                self._cliente_embeddings = obtener_cliente_openai_recurso(self._proyecto, settings.endpoint)
+            return self._cliente_embeddings, settings
 
     def precalentar(self) -> None:
         """Deja listos el cliente y el token de Entra ID antes de la primera pregunta (no llama al modelo).

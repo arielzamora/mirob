@@ -6,5 +6,19 @@
     "https://www.digitalzur.com.ar",
     "http://localhost:3000"
   ],
-  "habilitado": true
+  "habilitado": true,
+  "retrieval": {
+    "por_defecto": "hibrido",
+    "semantico": {
+      "umbral": 0.397
+    },
+    "hibrido": {
+      "umbral": 0.101,
+      "peso_semantico": 0.7,
+      "piso_lexico": 0.336,
+      "techo_lexico": 0.591,
+      "piso_semantico": 0.388,
+      "techo_semantico": 0.519
+    }
+  }
 }

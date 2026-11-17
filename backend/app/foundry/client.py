@@ -8,6 +8,8 @@ Las firmas están verificadas contra los paquetes instalados (azure-ai-projects
 2.4.0, openai 2.54.0).
 """
 
+from urllib.parse import urlparse
+
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from openai import OpenAI
@@ -62,3 +64,27 @@ def obtener_cliente_openai(proyecto: AIProjectClient) -> OpenAI:
     (ver chat.py).
     """
     return proyecto.get_openai_client()
+
+
+def url_openai_del_recurso(endpoint_del_proyecto: str) -> str:
+    """La URL base de la API OpenAI a nivel del RECURSO de Foundry, a partir del endpoint del proyecto.
+
+        https://<recurso>.services.ai.azure.com/api/projects/<proyecto>  ->  https://<recurso>.services.ai.azure.com/openai/v1
+
+    Se queda solo con el host: el recurso es el padre del proyecto, y esa ruta sirve a todos los deployments del recurso.
+    """
+    return f"https://{urlparse(endpoint_del_proyecto).netloc}/openai/v1"
+
+
+def obtener_cliente_openai_recurso(proyecto: AIProjectClient, endpoint_del_proyecto: str) -> OpenAI:
+    """Cliente de OpenAI contra la ruta del RECURSO, con el mismo token de Entra ID que el cliente del chat.
+
+    Por qué existe: la ruta del proyecto (`<endpoint>/openai/v1`, la de `obtener_cliente_openai`) sirve el chat con la
+    API Responses pero responde **404 sin cuerpo** a `/embeddings`. Verificado con labs/lab02b_embeddings_diagnostico.py:
+    la ruta del recurso sirve embeddings (1536 dimensiones con text-embedding-3-small) usando el MISMO token
+    (alcance https://ai.azure.com/.default), así que no hace falta otra credencial.
+
+    Firma verificada en el paquete instalado (azure-ai-projects 2.4.0): get_openai_client(*, agent_name=None, **kwargs)
+    acepta `base_url` y lo usa en lugar de la ruta por defecto.
+    """
+    return proyecto.get_openai_client(base_url=url_openai_del_recurso(endpoint_del_proyecto))

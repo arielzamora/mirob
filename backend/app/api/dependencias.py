@@ -52,8 +52,9 @@ def obtener_generador() -> GeneradorTexto:
 
 @lru_cache(maxsize=1)
 def _embeddings_unico() -> FoundryEmbeddings:
-    """Un solo FoundryEmbeddings para todo el proceso. Comparte cliente y credencial con el generador del chat."""
-    return FoundryEmbeddings(_generador_unico().obtener_cliente)
+    """Un solo FoundryEmbeddings para todo el proceso. Comparte proyecto y credencial con el generador del chat,
+    pero llama por la ruta del recurso: la del proyecto no sirve embeddings (ver app/foundry/client.py)."""
+    return FoundryEmbeddings(_generador_unico().obtener_cliente_embeddings)
 
 
 def obtener_embeddings() -> GeneradorEmbeddings:

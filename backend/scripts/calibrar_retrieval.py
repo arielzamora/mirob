@@ -75,7 +75,7 @@ def main(argv: Sequence[str] | None = None, embeddings: GeneradorEmbeddings | No
             raise CalibracionError(f"El tenant '{tenant.tenant_id}' no tiene contenido para calibrar.")
 
         if embeddings is None:
-            embeddings = EmbeddingsDePrueba() if args.fake else FoundryEmbeddings(FoundryGenerador().obtener_cliente)
+            embeddings = EmbeddingsDePrueba() if args.fake else FoundryEmbeddings(FoundryGenerador().obtener_cliente_embeddings)
         # Con --fake no se guarda nada: vectores falsos en la carpeta del tenant contaminarían el chat.
         solo_memoria = args.fake or tenant.usa_sample
         almacen = AlmacenVectores(None if solo_memoria else carpeta / NOMBRE_CARPETA)

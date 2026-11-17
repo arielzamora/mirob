@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import app.tenants as tenants_module
-from app.tenants import ConfigHibrido, TenantConfigError, listar_tenants, obtener_tenant
+from app.tenants import RETRIEVALS_VALIDOS, ConfigHibrido, TenantConfigError, listar_tenants, obtener_tenant
 
 
 def _tenant(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **extra) -> None:
@@ -151,9 +151,16 @@ def test_un_por_defecto_invalido_o_sin_calibrar_es_un_error_de_configuracion(
         obtener_tenant("t1")
 
 
-def test_los_tenants_versionados_siguen_cargando_sin_el_bloque() -> None:
+def test_los_tenants_versionados_cargan_y_su_por_defecto_esta_calibrado() -> None:
     tenants = listar_tenants()
 
     assert tenants  # hay al menos uno
-    # Nadie calibró los modos con embeddings todavía: el léxico es el único disponible en los tenants reales.
-    assert all(t.retrieval.umbral_semantico is None and t.retrieval.hibrido is None for t in tenants)
+    for tenant in tenants:
+        # Un tenant puede no tener el bloque `retrieval` (solo léxico) o tenerlo calibrado: en ambos casos su modo por
+        # defecto tiene que estar disponible. Si no, `obtener_tenant` ya habría fallado al cargarlo.
+        modo = tenant.retrieval.por_defecto
+        assert modo in RETRIEVALS_VALIDOS
+        if modo == "semantico":
+            assert tenant.retrieval.umbral_semantico is not None
+        if modo == "hibrido":
+            assert tenant.retrieval.hibrido is not None

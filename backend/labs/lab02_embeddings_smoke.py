@@ -14,7 +14,9 @@ Hace UNA llamada con tres frases cortas (unas decenas de tokens, centavos de dó
   - qué tan cerca queda "celular" de "teléfono" frente a una frase sin relación. Si el modelo entiende el
     significado, la primera similitud tiene que ser claramente mayor (con TF-IDF las dos darían 0).
 
-Usa FoundryEmbeddings (app/foundry/embeddings.py), la misma clase que usa la API, y el cliente compartido con el chat.
+Usa FoundryEmbeddings (app/foundry/embeddings.py), la misma clase que usa la API. Comparte con el chat el proyecto y la
+credencial, pero llama por la ruta del RECURSO: la del proyecto responde 404 a los embeddings (labs/lab02b_embeddings_diagnostico.py
+lo comprobó; ver app/foundry/client.py).
 """
 
 from app.foundry.embeddings import FoundryEmbeddings
@@ -27,11 +29,11 @@ FRASES = ["¿Me pasás su celular?", "¿Cuál es su teléfono?", "La receta llev
 def main() -> None:
     # El cliente (y su credencial de Entra ID) se crea una sola vez y se comparte con el chat.
     generador = FoundryGenerador()
-    _, settings = generador.obtener_cliente()
+    _, settings = generador.obtener_cliente_embeddings()
     print(f"Endpoint: {settings.endpoint}")
     print(f"Deployment de embeddings: {settings.embeddings_deployment}")
 
-    embeddings = FoundryEmbeddings(generador.obtener_cliente)
+    embeddings = FoundryEmbeddings(generador.obtener_cliente_embeddings)
     resultado = embeddings.embeber(FRASES)
 
     vectores = normalizar(resultado.vectores)

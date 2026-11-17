@@ -155,3 +155,68 @@ def test_sin_variables_de_entorno_lanza_foundry_no_configurado(monkeypatch: pyte
 
     with pytest.raises(FoundryNoConfigurado):
         FoundryGenerador().generar("i", "m")
+
+
+# --- Cliente de embeddings (ruta del recurso) ----------------------------------------------------------------------
+
+
+class ProyectoFalso:
+    """Imita lo mínimo de AIProjectClient: get_openai_client(**kwargs). Anota con qué se lo pidió."""
+
+    def __init__(self) -> None:
+        self.pedidos: list[dict] = []
+
+    def get_openai_client(self, **kwargs):
+        self.pedidos.append(kwargs)
+        return SimpleNamespace(base_url=kwargs.get("base_url", "<ruta del proyecto>"))
+
+
+def test_url_del_recurso_sale_del_host_del_endpoint_del_proyecto() -> None:
+    from app.foundry.client import url_openai_del_recurso
+
+    assert url_openai_del_recurso("https://mi-recurso.services.ai.azure.com/api/projects/mirob") == (
+        "https://mi-recurso.services.ai.azure.com/openai/v1"
+    )
+
+
+def test_los_embeddings_salen_por_la_ruta_del_recurso_y_el_chat_por_la_del_proyecto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proyecto = ProyectoFalso()
+    credenciales: list[object] = []
+    monkeypatch.setattr(generador_module, "crear_credencial", lambda: credenciales.append(object()) or credenciales[-1])
+    monkeypatch.setattr(generador_module, "crear_cliente_proyecto", lambda settings, credencial: proyecto)
+    monkeypatch.setattr(generador_module, "obtener_cliente_openai", lambda p: p.get_openai_client())
+    generador = FoundryGenerador(SETTINGS)
+
+    cliente_chat, _ = generador.obtener_cliente()
+    cliente_embeddings, settings = generador.obtener_cliente_embeddings()
+
+    assert cliente_chat.base_url == "<ruta del proyecto>"
+    assert cliente_embeddings.base_url == "https://x.services.ai.azure.com/openai/v1"
+    assert settings == SETTINGS
+    assert len(credenciales) == 1  # un solo login (y un solo token) para los dos clientes
+
+
+def test_el_cliente_de_embeddings_se_crea_una_sola_vez(monkeypatch: pytest.MonkeyPatch) -> None:
+    proyecto = ProyectoFalso()
+    monkeypatch.setattr(generador_module, "crear_credencial", lambda: object())
+    monkeypatch.setattr(generador_module, "crear_cliente_proyecto", lambda settings, credencial: proyecto)
+    monkeypatch.setattr(generador_module, "obtener_cliente_openai", lambda p: p.get_openai_client())
+    generador = FoundryGenerador(SETTINGS)
+
+    primero, _ = generador.obtener_cliente_embeddings()
+    segundo, _ = generador.obtener_cliente_embeddings()
+
+    assert primero is segundo
+    assert [p for p in proyecto.pedidos if "base_url" in p] == [{"base_url": "https://x.services.ai.azure.com/openai/v1"}]
+
+
+def test_el_cliente_de_embeddings_sin_configuracion_lanza_foundry_no_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    def sin_config(cls, env=None):
+        raise FoundryConfigError("Faltan variables de entorno: FOUNDRY_ENDPOINT")
+
+    monkeypatch.setattr(FoundrySettings, "from_env", classmethod(sin_config))
+
+    with pytest.raises(FoundryNoConfigurado):
+        FoundryGenerador().obtener_cliente_embeddings()

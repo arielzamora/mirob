@@ -3,5 +3,18 @@
   "umbral_similitud": 0.10,
   "origenes_permitidos": [],
   "acceso": "access_key",
-  "habilitado": true
+  "habilitado": true,
+  "retrieval": {
+    "semantico": {
+      "umbral": 0.42
+    },
+    "hibrido": {
+      "umbral": 0.033,
+      "peso_semantico": 0.7,
+      "piso_lexico": 0.442,
+      "techo_lexico": 0.65,
+      "piso_semantico": 0.413,
+      "techo_semantico": 0.559
+    }
+  }
 }

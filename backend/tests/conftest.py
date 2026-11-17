@@ -26,7 +26,7 @@ import app.reindex as reindex_module
 from app.api.dependencias import obtener_embeddings, obtener_estado_limites, obtener_generador
 from app.finops import EstadoLimites, Limites
 from app.api.security import VAR_ADMIN_API_KEY
-from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError, ResultadoEmbeddings
+from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError, FoundryNoConfigurado, ResultadoEmbeddings
 from app.main import app
 from app.rag.embeddings import fit_vectorizer
 from app.rag.ingest import build_corpus
@@ -197,6 +197,30 @@ class EmbeddingsFalso:
         # Un "token" por palabra: no es el conteo real de un modelo, pero es estable y sirve para afirmar el gasto.
         tokens = sum(len(texto.split()) for texto in textos)
         return ResultadoEmbeddings(vectores, tokens, self.nombre_deployment, 1.0)
+
+
+class EmbeddingsSinConfigurar:
+    """Lo que ven los tests por defecto: un generador de embeddings que NUNCA llama a Azure y siempre falla "sin configurar".
+
+    Hay tenants versionados con un modo de embeddings por defecto (digital-zur usa el híbrido). Sin esta protección, cualquier test
+    que converse con ellos intentaría llamar al Foundry REAL (si hay un backend/.env con credenciales en la máquina), con costo y
+    sin determinismo. Así el chat degrada al léxico, que es justo lo que esos tests esperan.
+    """
+
+    def deployment(self) -> str:
+        raise FoundryNoConfigurado("Tests: los embeddings reales están desactivados.")
+
+    def embeber(self, textos: Sequence[str]) -> ResultadoEmbeddings:
+        raise FoundryNoConfigurado("Tests: los embeddings reales están desactivados.")
+
+
+@pytest.fixture(autouse=True)
+def sin_embeddings_reales():
+    """En TODOS los tests: la API usa EmbeddingsSinConfigurar salvo que el test pida otro (fixture `embeddings_falso`)."""
+    sin_configurar = EmbeddingsSinConfigurar()
+    app.dependency_overrides[obtener_embeddings] = lambda: sin_configurar
+    yield
+    app.dependency_overrides.pop(obtener_embeddings, None)
 
 
 @pytest.fixture
