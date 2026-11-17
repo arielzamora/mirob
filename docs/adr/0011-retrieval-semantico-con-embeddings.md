@@ -33,8 +33,11 @@ no lo trae, rige `retrieval.por_defecto` del `tenant.json` (el léxico si no se 
 el servidor por tenant. La vista de auditoría del front tiene un segundo selector para comparar los tres con la misma pregunta.
 
 **Embeddings.** Deployment `text-embedding-3-small` en el mismo proyecto de Foundry que el de chat, nombre en
-`FOUNDRY_EMBEDDINGS_DEPLOYMENT`. Mismo `DefaultAzureCredential` y mismo cliente que el chat ([ADR 0008](0008-foundry-autenticacion-modelo-y-prompts.md)):
-**sin API keys**. El único código que importa el SDK es `app/foundry/embeddings.py`; el dominio depende de un `Protocol`
+`FOUNDRY_EMBEDDINGS_DEPLOYMENT`. Mismo `DefaultAzureCredential`, mismo `AIProjectClient` y mismo token que el chat ([ADR 0008](0008-foundry-autenticacion-modelo-y-prompts.md)):
+**sin API keys**. **Pero otra ruta:** el chat usa la del proyecto (`…/api/projects/<proyecto>/openai/v1`), que **responde 404 sin cuerpo a
+`/embeddings`** (comprobado con `labs/lab02b_embeddings_diagnostico.py`); los embeddings se piden por la del **recurso**
+(`https://<recurso>.services.ai.azure.com/openai/v1`), con `get_openai_client(base_url=…)` y el mismo alcance
+(`https://ai.azure.com/.default`). El único código que importa el SDK es `app/foundry/embeddings.py` (y `client.py`); el dominio depende de un `Protocol`
 (`GeneradorEmbeddings`), así que se prueba sin red con un generador falso. Los textos viajan **en lotes** (32 por defecto,
 `MIROB_EMBEDDINGS_BATCH`), no uno por chunk, y los vectores se **normalizan una sola vez**, con lo que el coseno es un
 producto punto (`app/rag/semantico.py`).
@@ -137,7 +140,12 @@ documento. En ese caso, el `Protocol` de embeddings y `buscar.py` son el punto d
 
 - Calibrar `digital-zur` y `ariel-zamora` con `python -m scripts.calibrar_retrieval` y pegar el bloque `retrieval` en su
   `tenant.json`; recién entonces activar `por_defecto`.
-- Probar el deployment contra Foundry con `python -m labs.lab02_embeddings_smoke` (permisos del rol *Foundry User* sobre embeddings).
+- Probar el deployment contra Foundry con `python -m labs.lab02_embeddings_smoke` (hecho en local con la cuenta de quien desarrolla).
+- **Permisos de la identidad del backend en producción.** El rol *Foundry User* de la Container App está asignado **solo sobre el
+  proyecto** (ADR 0008), pero los embeddings se llaman por la ruta del **recurso**. En local funciona porque la cuenta de quien
+  desarrolla tiene permisos más amplios; en producción **no está verificado** que el rol sobre el proyecto alcance. Si falla, el chat
+  no se rompe (responde con léxico y `retrieval_fallback_reason: "embeddings_no_disponibles"`) y habrá que asignar el rol necesario
+  sobre el recurso, en el Bicep.
 - Golden set con Recall@k y MRR por modo, incluidos los casos de sinónimos (Parte 2.3).
 - Precalentar los vectores al arrancar para los tenants que usen un modo con embeddings por defecto (hoy los arma la primera consulta).
 - Fijar `versionUpgradeOption` del deployment de embeddings, como el de chat (ADR 0008).
