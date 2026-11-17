@@ -61,3 +61,5 @@ etiquetas sanitizadas) y se instruye, tras medirlo con el modelo real:
 - Fijar `versionUpgradeOption` en `OnceCurrentVersionExpired`.
 - Evals con golden set, incluidas preguntas de *prompt injection* (Parte 2.3 y 2.5).
 - Embeddings semánticos para reemplazar al retrieval léxico (Parte 2.1).
+  - **Hecho como complemento, no reemplazo** ([ADR 0011](0011-retrieval-semantico-con-embeddings.md)): mismo `DefaultAzureCredential` y mismo
+    cliente que el chat, con un deployment de embeddings aparte creado a mano.

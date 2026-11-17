@@ -48,6 +48,14 @@ class FoundryGenerador:
                 self._credencial = credencial
             return self._cliente, self._settings
 
+    def obtener_cliente(self) -> tuple[OpenAI, FoundrySettings]:
+        """El cliente OpenAI y la configuración, creados una sola vez.
+
+        Es público porque FoundryEmbeddings comparte este cliente (y su credencial, y su token) en vez de crear
+        otro: un solo `DefaultAzureCredential` para todo el proceso.
+        """
+        return self._obtener_cliente()
+
     def precalentar(self) -> None:
         """Deja listos el cliente y el token de Entra ID antes de la primera pregunta (no llama al modelo).
 

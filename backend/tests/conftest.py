@@ -10,8 +10,12 @@ nunca el contenido real de data/, para que den el mismo resultado en
 cualquier máquina y no expongan datos personales.
 """
 
+import re
+import zlib
+from collections.abc import Sequence
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -19,10 +23,10 @@ from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import app.reindex as reindex_module
-from app.api.dependencias import obtener_estado_limites, obtener_generador
+from app.api.dependencias import obtener_embeddings, obtener_estado_limites, obtener_generador
 from app.finops import EstadoLimites, Limites
 from app.api.security import VAR_ADMIN_API_KEY
-from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError
+from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, FoundryError, ResultadoEmbeddings
 from app.main import app
 from app.rag.embeddings import fit_vectorizer
 from app.rag.ingest import build_corpus
@@ -149,6 +153,59 @@ def generador_falso() -> GeneradorFalso:
     app.dependency_overrides[obtener_generador] = lambda: falso
     yield falso
     app.dependency_overrides.pop(obtener_generador, None)
+
+
+class EmbeddingsFalso:
+    """Reemplaza al modelo de embeddings en los tests: sin red, determinístico y con "sinónimos" a pedido.
+
+    Arma un vector por bolsa de palabras (cada palabra suma 1 en una columna sacada de su hash), así dos textos con
+    palabras en común quedan cerca. `sinonimos` traduce una palabra a otra ANTES de vectorizar: es la forma de simular
+    que el modelo real entiende que "lenguas" e "idiomas" significan lo mismo, sin Azure.
+    Cumple el Protocol GeneradorEmbeddings sin heredar de nada (como un mock de interfaz en C#).
+    """
+
+    # Muchas columnas para que dos palabras distintas casi nunca caigan en la misma (una colisión de hash daba un
+    # puntaje de 0,1 a una pregunta fuera de tema): con 4096, lo fuera de tema da 0 y los tests son estables.
+    DIMENSIONES = 4096
+
+    def __init__(
+        self,
+        sinonimos: dict[str, str] | None = None,
+        error: Exception | None = None,
+        nombre_deployment: str = "embeddings-test",
+        dimensiones: int | None = None,
+    ) -> None:
+        self.sinonimos = sinonimos or {}
+        self.error = error
+        self.nombre_deployment = nombre_deployment  # se puede cambiar en un test para simular otro modelo
+        self.dimensiones = dimensiones or self.DIMENSIONES
+        # Cada elemento es UNA llamada (un lote): permite afirmar cuántas llamadas se hicieron y con qué textos.
+        self.llamadas: list[list[str]] = []
+
+    def deployment(self) -> str:
+        return self.nombre_deployment
+
+    def embeber(self, textos: Sequence[str]) -> ResultadoEmbeddings:
+        self.llamadas.append(list(textos))
+        if self.error is not None:
+            raise self.error
+        vectores = np.zeros((len(textos), self.dimensiones), dtype=np.float32)
+        for fila, texto in enumerate(textos):
+            for palabra in re.findall(r"\w+", texto.lower()):
+                palabra = self.sinonimos.get(palabra, palabra)
+                vectores[fila, zlib.crc32(palabra.encode("utf-8")) % self.dimensiones] += 1.0
+        # Un "token" por palabra: no es el conteo real de un modelo, pero es estable y sirve para afirmar el gasto.
+        tokens = sum(len(texto.split()) for texto in textos)
+        return ResultadoEmbeddings(vectores, tokens, self.nombre_deployment, 1.0)
+
+
+@pytest.fixture
+def embeddings_falso() -> EmbeddingsFalso:
+    """Inyecta un EmbeddingsFalso en la API durante el test (y lo saca al terminar)."""
+    falso = EmbeddingsFalso()
+    app.dependency_overrides[obtener_embeddings] = lambda: falso
+    yield falso
+    app.dependency_overrides.pop(obtener_embeddings, None)
 
 
 # Límites tan altos que ningún test los toca (salvo los que pidan otros a propósito).

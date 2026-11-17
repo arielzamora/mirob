@@ -14,8 +14,9 @@ from fastapi import Depends, HTTPException, Request
 
 from app.accesskeys import AlmacenClavesJson, ServicioClaves
 from app.finops import EstadoLimites, Limites
+from app.foundry.embeddings import FoundryEmbeddings
 from app.foundry.generador import FoundryGenerador
-from app.foundry.tipos import GeneradorTexto
+from app.foundry.tipos import GeneradorEmbeddings, GeneradorTexto
 from app.tenants import TenantConfig, TenantInvalido, TenantNoEncontrado, obtener_tenant
 
 
@@ -47,6 +48,17 @@ def obtener_generador() -> GeneradorTexto:
     para no usar red ni gastar tokens.
     """
     return _generador_unico()
+
+
+@lru_cache(maxsize=1)
+def _embeddings_unico() -> FoundryEmbeddings:
+    """Un solo FoundryEmbeddings para todo el proceso. Comparte cliente y credencial con el generador del chat."""
+    return FoundryEmbeddings(_generador_unico().obtener_cliente)
+
+
+def obtener_embeddings() -> GeneradorEmbeddings:
+    """Dependencia que entrega el generador de embeddings; los tests la reemplazan con un falso (sin red)."""
+    return _embeddings_unico()
 
 
 # --- Límites (rate limit por IP y tope diario) --------------------------------------

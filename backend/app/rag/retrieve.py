@@ -57,6 +57,23 @@ def cosine_similarities(query_vector: csr_matrix, corpus_matrix: csr_matrix) -> 
     return similarities
 
 
+def puntajes_lexicos(question: str, vectorizer: TfidfVectorizer, corpus_matrix: csr_matrix) -> np.ndarray:
+    """Similitud coseno TF-IDF de la pregunta contra CADA chunk (un puntaje por chunk, en el orden del corpus).
+
+    Es la mitad de top_k, separada para que el modo híbrido y la calibración puedan combinar este puntaje con el
+    semántico antes de elegir los mejores.
+    """
+    # OJO: .transform(), NO .fit_transform(). La pregunta se proyecta sobre
+    # el vocabulario que YA aprendió el vectorizer con el corpus (fit_vectorizer
+    # en embeddings.py). Si acá se hiciera fit de nuevo, el vocabulario
+    # cambiaría y las columnas de query_vector no coincidirían con las de
+    # corpus_matrix — la comparación dejaría de tener sentido.
+    # .transform() espera una LISTA de textos, por eso `[question]` entre
+    # corchetes aunque sea una sola pregunta.
+    query_vector = vectorizer.transform([question])
+    return cosine_similarities(query_vector, corpus_matrix)
+
+
 def top_k(
     question: str,
     vectorizer: TfidfVectorizer,
@@ -68,15 +85,7 @@ def top_k(
 
     El resultado incluye la columna `similarity` y está ordenado descendente.
     """
-    # OJO: .transform(), NO .fit_transform(). La pregunta se proyecta sobre
-    # el vocabulario que YA aprendió el vectorizer con el corpus (fit_vectorizer
-    # en embeddings.py). Si acá se hiciera fit de nuevo, el vocabulario
-    # cambiaría y las columnas de query_vector no coincidirían con las de
-    # corpus_matrix — la comparación dejaría de tener sentido.
-    # .transform() espera una LISTA de textos, por eso `[question]` entre
-    # corchetes aunque sea una sola pregunta.
-    query_vector = vectorizer.transform([question])
-    similarities = cosine_similarities(query_vector, corpus_matrix)
+    similarities = puntajes_lexicos(question, vectorizer, corpus_matrix)
 
     # .copy() para no pisar el DataFrame original del corpus al agregarle
     # la columna nueva (evita el warning de pandas por mutar una vista).

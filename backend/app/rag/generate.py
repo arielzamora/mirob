@@ -123,17 +123,20 @@ def generar_respuesta(
     resultado: pd.DataFrame,
     historial: Sequence[Turno] | None,
     generador: GeneradorTexto,
+    umbral: float | None = None,
 ) -> RespuestaGenerada:
     """Aplica el umbral y, solo si corresponde, llama al LLM.
 
-    - Ningún chunk supera el umbral del tenant → mensaje fijo, 0 tokens, NO se llama al generador.
+    `umbral` es el del retrieval que se usó (cada modo tiene su escala, ADR 0011); sin él rige el léxico del tenant.
+
+    - Ningún chunk supera el umbral → mensaje fijo, 0 tokens, NO se llama al generador.
     - Hay chunks → se arma el prompt y se llama al generador con el system prompt del tenant,
       limitando la salida a MAX_TOKENS_SALIDA.
     Puede lanzar FoundryError (lo traduce la capa HTTP).
     """
     sin_informacion = MENSAJE_SIN_INFORMACION.format(nombre=tenant.nombre)
 
-    chunks = seleccionar_chunks_contexto(resultado, tenant.umbral_similitud)
+    chunks = seleccionar_chunks_contexto(resultado, tenant.umbral_similitud if umbral is None else umbral)
     if chunks.empty:
         return RespuestaGenerada(texto=sin_informacion, llm_invocado=False)
 

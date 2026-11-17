@@ -31,6 +31,9 @@ param foundryProjectName string
 @description('Nombre del deployment de chat dentro del proyecto (el modelo que responde).')
 param chatDeploymentName string = 'mirob-chat'
 
+@description('Nombre del deployment de embeddings dentro del proyecto (retrieval semántico, ADR 0011). Se crea a mano en Foundry: acá solo se REFERENCIA, igual que el de chat. Vacío = sin embeddings: el chat usa solo el retrieval léxico.')
+param embeddingsDeploymentName string = ''
+
 @description('Imagen del backend, sin tag. Está en GHCR (público); no contiene datos reales.')
 param imageRepository string = 'ghcr.io/arielzamora/mirob-backend'
 
@@ -188,6 +191,11 @@ var secretos = concat(
 var reasoningEnv = empty(reasoningEffort) ? [] : [
   { name: 'FOUNDRY_REASONING_EFFORT', value: reasoningEffort }
 ]
+// Solo el NOMBRE del deployment de embeddings (no es un secreto). Sin él, los modos semántico e híbrido no están
+// disponibles y el backend responde con el léxico.
+var embeddingsEnv = empty(embeddingsDeploymentName) ? [] : [
+  { name: 'FOUNDRY_EMBEDDINGS_DEPLOYMENT', value: embeddingsDeploymentName }
+]
 
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-mirob-api'
@@ -215,7 +223,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
-          env: concat(baseEnv, adminEnv, sessionEnv, reasoningEnv)
+          env: concat(baseEnv, adminEnv, sessionEnv, reasoningEnv, embeddingsEnv)
           volumeMounts: [
             // data/sample (perfil ficticio) viene en la imagen; los tenants reales, del share.
             { volumeName: 'tenants-data', mountPath: '/app/data/tenants' }

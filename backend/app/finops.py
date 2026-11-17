@@ -9,11 +9,11 @@ Todo vive en memoria del proceso (ver el límite conocido en app/ratelimit.py).
 """
 
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, GeneradorTexto
+from app.foundry.tipos import MAX_TOKENS_SALIDA, ChatResult, GeneradorEmbeddings, GeneradorTexto, ResultadoEmbeddings
 from app.ratelimit import LimitadorVentana
 from app.tenants import TenantConfig
 
@@ -176,4 +176,28 @@ class GeneradorConPresupuesto:
 
         resultado = self._interno.generar(instrucciones, mensaje, max_tokens_salida)
         self._estado.presupuesto.registrar(self._tenant.tenant_id, resultado.tokens_total)
+        return resultado
+
+
+class GeneradorEmbeddingsConPresupuesto:
+    """Decorador de un GeneradorEmbeddings: respeta el tope diario y anota los tokens que gasta (ADR 0004 y 0011).
+
+    Los tokens de embeddings (de los chunks y de las preguntas) cuentan en el MISMO tope diario que los del chat,
+    el del tenant y el global. A diferencia del LLM no aplica el límite por IP por hora: cada pregunta ya pasó por el
+    límite de pedidos por minuto del chat (`limitar_chat`), y una consulta de embeddings pesa muy poco.
+    """
+
+    def __init__(self, interno: GeneradorEmbeddings, estado: EstadoLimites, tenant: TenantConfig) -> None:
+        self._interno = interno
+        self._estado = estado
+        self._tenant = tenant
+
+    def deployment(self) -> str:
+        return self._interno.deployment()
+
+    def embeber(self, textos: Sequence[str]) -> ResultadoEmbeddings:
+        # Si el tope ya se alcanzó, ni se llama a Azure: lanza PresupuestoAgotado.
+        self._estado.presupuesto.verificar(self._tenant)
+        resultado = self._interno.embeber(textos)
+        self._estado.presupuesto.registrar(self._tenant.tenant_id, resultado.tokens)
         return resultado

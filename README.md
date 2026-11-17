@@ -28,10 +28,15 @@ backend/
     rag/
       ingest.py      # pandas: lee .md/.txt y arma el DataFrame de chunks
       embeddings.py  # TfidfVectorizer ajustado sobre el corpus
-      retrieve.py    # coseno a mano con numpy + top-k
+      retrieve.py    # coseno a mano con numpy + top-k (retrieval léxico)
+      semantico.py   # retrieval semántico: embeddings normalizados + coseno con numpy
+      hibrido.py     # retrieval híbrido: puntajes léxico y semántico normalizados y ponderados
+      almacen_vectores.py  # vectores por tenant en Azure Files (.vectores/), indexado incremental por hash
+      buscar.py      # elige el retrieval y degrada al léxico si el pedido no se puede cumplir
+      calibracion.py # umbrales por modo, piso/techo y peso del híbrido a partir de preguntas típicas
       humanize.py    # modo "humanized" (aperturas y limpieza de formato)
       generate.py    # modo "foundry": umbral, armado del prompt y llamada al LLM
-    api/chat.py      # POST /api/v1/chat (tenant_id, message, mode)
+    api/chat.py      # POST /api/v1/chat (tenant_id, message, mode, retrieval)
     api/routes.py    # POST /admin/content y POST /admin/reindex (reciben tenant_id)
     api/health.py    # GET /health (probes del contenedor y smoke test)
     api/tenants.py   # GET /api/v1/tenants (id y nombre de los tenants habilitados)
@@ -43,20 +48,21 @@ backend/
     chunk_format.py  # extrae header y respuesta de un chunk
     reindex.py       # un índice en memoria por tenant y su reindexado
     main.py          # app FastAPI + CORS
-    foundry/         # único que usa el SDK de Azure: client.py, chat.py, generador.py (+ tipos.py sin SDK)
-  labs/              # un script por módulo del curso AI-103 (lab01_smoke.py)
+    foundry/         # único que usa el SDK de Azure: client.py, chat.py, generador.py, embeddings.py (+ tipos.py sin SDK)
+  labs/              # un script por módulo del curso AI-103 (lab01_smoke.py, lab02_embeddings_smoke.py)
+  scripts/           # herramientas de operación: calibrar_retrieval.py
   tenants/           # config versionada de cada tenant: tenant.json + prompt.md
   data/              # contenido real (ignorado por git)
     tenants/<id>/    # los .md/.txt de cada tenant
     sample/          # perfil ficticio versionado (tenant "demo" y tests)
   tests/             # pytest
 frontend/            # React + Vite: chat y pantalla de carga
-docs/adr/            # decisiones de arquitectura (10 ADR)
+docs/adr/            # decisiones de arquitectura (11 ADR)
 docs/arquitectura/   # diagramas C4 en Mermaid
 infra/               # Bicep: Container Apps, Azure Files, Static Web Apps (ver abajo)
 ```
 
-Flujo de `POST /api/v1/chat`: `tenant_id` + `message` → vectorización TF-IDF → coseno contra la matriz **de ese tenant** → top 3 chunks → respuesta según `mode`.
+Flujo de `POST /api/v1/chat`: `tenant_id` + `message` → retrieval (`retrieval`, o el `por_defecto` del tenant; léxico si no se define) contra el índice **de ese tenant** → top 3 chunks → respuesta según `mode`. El retrieval léxico vectoriza con TF-IDF y calcula el coseno; el semántico y el híbrido suman embeddings (ver [Retrieval semántico e híbrido](#retrieval-semántico-e-híbrido-embeddings)).
 Flujo de `POST /admin/content`: `tenant_id` + archivo `.md`/`.txt` → se guarda en `backend/data/tenants/<tenant_id>/` → se reindexa solo ese tenant.
 
 **Chunking:** los `.md` se cortan por headers de nivel 2 (`##`); los `.txt`, por párrafo (línea en blanco).
@@ -66,7 +72,7 @@ Flujo de `POST /admin/content`: `tenant_id` + archivo `.md`/`.txt` → se guarda
 - **Backend:** FastAPI (Python), pandas, numpy y scikit-learn (solo `TfidfVectorizer`; el coseno es propio).
 - **Frontend:** React + Vite.
 - **Sin base de datos:** el índice vive en memoria y se reconstruye al arrancar.
-- **Etapa 2 (planificada):** Azure AI Foundry para embeddings semánticos y generación.
+- **Etapa 2 (en curso):** Azure AI Foundry para generación y para embeddings (retrieval semántico e híbrido, opcional).
 
 ## Cómo correrlo
 
@@ -115,28 +121,51 @@ curl -X POST http://localhost:8000/admin/content -H "X-API-Key: <tu-clave>" -F "
 ### Chat: `POST /api/v1/chat`
 
 ```json
-{ "tenant_id": "demo", "message": "¿Qué idiomas hablás?", "mode": "raw", "conversation_history": [] }
+{ "tenant_id": "demo", "message": "¿Qué idiomas hablás?", "mode": "raw", "retrieval": "lexico", "conversation_history": [] }
 ```
 
 - `message`: obligatorio, hasta 350 caracteres. `conversation_history` es opcional (`[{role: "user"|"assistant", content}]`, hasta 20 mensajes).
 - `mode`: `raw` (el chunk top-1 tal cual, **sin cortar por umbral**, para auditar el retrieval), `humanized` (top-1 con apertura conversacional, sin LLM) o `foundry` (respuesta redactada por el LLM, ver abajo).
-- La respuesta incluye `answer`, `chunks` (top 3 con `score`), `top_score`, `threshold` (del tenant), `below_threshold`, `llm_called`, `usage` (tokens; en 0 si no se llamó al LLM) y, cuando hubo LLM, `latency_ms` y `deployment`.
+- `retrieval` (opcional): cómo se buscan los chunks, independiente de `mode`: `lexico`, `semantico` o `hibrido`. Si falta, rige el `retrieval.por_defecto` del tenant (el léxico hasta que se calibre otro).
+- La respuesta incluye `answer`, `chunks` (top 3 con `score`), `top_score`, `threshold` (el del retrieval usado), `below_threshold`, `llm_called`, `usage` (tokens del LLM; en 0 si no se llamó), `retrieval_used` (con qué se buscó de verdad), `retrieval_fallback_reason` (por qué se usó el léxico en lugar de lo pedido, si pasó), `embedding_usage` (tokens de embeddings, aparte de los del LLM) y, cuando hubo LLM, `latency_ms` y `deployment`.
 
 **Modo `foundry` y ahorro de tokens:**
 
-1. Se busca localmente (TF-IDF + coseno) solo en los chunks del tenant.
-2. Si el mejor score es **menor al umbral del tenant** (`umbral_similitud`), **no se llama a Foundry**: se responde con un mensaje fijo ("No encontré información sobre esa consulta...") y el gasto es 0 tokens.
+1. Se busca solo en los chunks del tenant, con el retrieval elegido (por defecto TF-IDF + coseno, local y sin costo).
+2. Si el mejor score es **menor al umbral de ese retrieval** (`umbral_similitud` para el léxico), **no se llama a Foundry**: se responde con un mensaje fijo ("No encontré información sobre esa consulta...") y el gasto es 0 tokens.
 3. Si lo supera, al LLM viajan como máximo 3 chunks (solo los que superan el umbral), delimitados entre `<contexto>` y `</contexto>` y tratados como datos; más los últimos 6 mensajes del historial, recortados.
 4. El LLM usa el `prompt.md` del tenant como instrucciones y está limitado a `max_output_tokens=250`.
    - Cada `prompt.md` fija una **frase exacta** para "no tengo esa información" y prohíbe suponer capacidades, sectores o casos que no figuren de forma explícita. Probado con el LLM real: una pregunta sobre un sector que el contenido no menciona ("¿hacen sistemas para hospitales?") responde esa frase en lugar de decir que sí.
 
-El umbral por defecto es 0.10 porque TF-IDF da scores más bajos que un modelo de embeddings (con las stopwords en español filtradas, las preguntas bien respondidas quedan entre ~0.15 y 0.80 y las fuera de tema en ~0). Calibralo por tenant en su `tenant.json` con preguntas reales de su contenido.
+El umbral por defecto es 0.10 porque TF-IDF da scores más bajos que un modelo de embeddings (con las stopwords en español filtradas, las preguntas bien respondidas quedan entre ~0.15 y 0.80 y las fuera de tema en ~0). Calibralo por tenant en su `tenant.json` con preguntas reales de su contenido. Los modos con embeddings tienen su **propio umbral** (otra escala), ver la sección siguiente.
 
 Errores del modo foundry: sin configurar → 503; falla del modelo (credenciales, red, cuota) → 502 con un mensaje genérico. Los modos `raw` y `humanized`, y las consultas bajo el umbral, no necesitan Foundry.
 
-**Configurar Foundry** (Entra ID, sin API keys): `az login` con el rol **Foundry User** (antes "Azure AI User") sobre el proyecto, y en `backend/.env` las variables `FOUNDRY_ENDPOINT` y `FOUNDRY_CHAT_DEPLOYMENT` (el nombre de tu deployment). Para probar la conexión sola: `python -m labs.lab01_smoke`.
+**Configurar Foundry** (Entra ID, sin API keys): `az login` con el rol **Foundry User** (antes "Azure AI User") sobre el proyecto, y en `backend/.env` las variables `FOUNDRY_ENDPOINT` y `FOUNDRY_CHAT_DEPLOYMENT` (el nombre de tu deployment). Para probar la conexión sola: `python -m labs.lab01_smoke`. Los embeddings (opcionales) suman `FOUNDRY_EMBEDDINGS_DEPLOYMENT`; se prueban con `python -m labs.lab02_embeddings_smoke`.
 
 **Qué modelo usar:** gpt-4o-mini y gpt-4.1-mini figuran como *Deprecated* y una suscripción nueva no puede desplegarlos. Usá `gpt-5.4-nano` (o `gpt-5.4-mini`) con deployment **GlobalStandard** (pago por token, nunca Provisioned). Son modelos de razonamiento: no se les envía `temperature` ni `reasoning` salvo que definas `FOUNDRY_TEMPERATURE` / `FOUNDRY_REASONING_EFFORT` (ver `.env.example`). Si las respuestas vuelven vacías, el modelo gastó el tope de 250 tokens pensando: bajá el esfuerzo (por ejemplo `minimal`). El calendario de retiros de cada modelo está en la [documentación de Microsoft](https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule).
+
+### Retrieval semántico e híbrido (embeddings)
+
+El retrieval léxico no entiende sinónimos ("celular" no encuentra "teléfono"). Los modos **semántico** (embeddings + coseno con numpy) e **híbrido** (léxico y semántico normalizados y ponderados) lo resuelven sin reemplazar al TF-IDF, que sigue como default y como respaldo. Decisión, alternativas y cuándo convendría Azure AI Search: [ADR 0011](docs/adr/0011-retrieval-semantico-con-embeddings.md).
+
+1. **Deployment de embeddings (a mano, una vez):** en el mismo proyecto de Foundry que el de chat, con un modelo chico (hoy `text-embedding-3-small`). Poné su nombre en `backend/.env` (`FOUNDRY_EMBEDDINGS_DEPLOYMENT`) y en `infra/main.bicepparam` (el Bicep solo lo referencia). Autenticación con Entra ID, **sin API keys**. Probalo con `python -m labs.lab02_embeddings_smoke`.
+2. **Calibrar cada tenant:** armá `backend/data/tenants/<tenant>/calibracion.json` (preguntas `en_tema` con el encabezado `##` del chunk esperado y preguntas `fuera_de_tema`; ver el ejemplo en `backend/data/sample/calibracion.json`) y corré `python -m scripts.calibrar_retrieval --tenant <tenant>`. Muestra cómo le va a cada modo, el umbral que mejor separa lo que debe responder de lo que no y el peso del híbrido, y imprime un bloque `retrieval` para pegar en `backend/tenants/<tenant>/tenant.json`. No modifica nada. Con `--fake` corre sin Azure (solo para probar el script). Las preguntas tienen que ser paráfrasis como las escribiría un visitante, no copias de las líneas `P:`.
+3. **Activarlo:** `"por_defecto": "hibrido"` (o `"semantico"`) dentro de `retrieval` hace que el tenant responda con ese modo cuando el pedido no dice nada, como el widget público.
+
+```json
+"retrieval": {
+  "por_defecto": "hibrido",
+  "semantico": { "umbral": 0.45 },
+  "hibrido": { "umbral": 0.5, "peso_semantico": 0.7, "piso_lexico": 0.0, "techo_lexico": 0.6,
+               "piso_semantico": 0.25, "techo_semantico": 0.7 }
+}
+```
+
+- **Sin bloque no hay modo:** un modo sin calibrar no está disponible, y el chat responde con el léxico (`retrieval_fallback_reason: "modo_no_calibrado"`). Lo mismo si falta el deployment, Azure falla o se agotó el tope diario: nunca un error por culpa de los embeddings.
+- **Vectores por tenant:** se calculan en la primera consulta semántica y se guardan en `<tenant>/.vectores/` (Azure Files). Si cambia el contenido, solo se calculan los chunks nuevos o modificados (por sha256). Si cambia el deployment, se recalcula todo y conviene recalibrar.
+- **Costos:** los tokens de embeddings cuentan en el tope diario (ADR 0004) y se informan en `embedding_usage`. A diferencia del léxico, cada pregunta semántica gasta una llamada chica aunque quede bajo el umbral.
+- **En el front:** la vista de auditoría (`#admin`) tiene un segundo selector de retrieval junto al de modo, y cada respuesta muestra el retrieval usado, el umbral y los tokens de embeddings, del LLM y el total. El widget público no lo muestra ni lo manda.
 
 ### Tenants (multitenant)
 
@@ -147,7 +176,7 @@ cada uno tiene su índice, armado solo con los archivos de su carpeta.
 - **Contenido (ignorado por git):** `backend/data/tenants/<tenant_id>/*.md|txt`. Se carga con `POST /admin/content`, o copiando los archivos y llamando a `POST /admin/reindex` (header `X-API-Key`; opcionalmente `tenant_id`, si no reindexa todos).
 - **Tenant `demo`:** lee el perfil ficticio de `backend/data/sample/` (solo lectura). Un clon recién bajado responde con `tenant_id: "demo"`.
 - **Sin respaldo silencioso:** un tenant sin contenido responde 503; nunca usa el de otro.
-- Opcionales en `tenant.json`: `origenes_permitidos` (sitios que pueden embeber el widget) y `tope_diario_tokens` (tope propio del tenant).
+- Opcionales en `tenant.json`: `origenes_permitidos` (sitios que pueden embeber el widget), `tope_diario_tokens` (tope propio del tenant) y `retrieval` (umbrales y modo por defecto de los retrievals con embeddings).
 - `tenant_id` es obligatorio en `/api/v1/chat` y `/admin/content`: minúsculas, números y guiones. Inexistente o deshabilitado → 404; formato inválido → 422.
 
 Formato esperado en cada archivo (los `.md` con un `##` por tema):
@@ -191,6 +220,7 @@ python -m pytest -q
 - `test_api.py` llama a la API en memoria con `TestClient` (sin abrir puertos); la subida de archivos escribe en una carpeta temporal. Cubre la autenticación del admin y los intentos de path traversal.
 - `test_tenants.py` prueba la validación del `tenant_id`, las configuraciones versionadas y el aislamiento entre tenants.
 - `test_uploads.py` prueba la validación de nombres y contenido de los archivos subidos.
+- Retrieval con embeddings ([ADR 0011](docs/adr/0011-retrieval-semantico-con-embeddings.md)), todo con un generador de embeddings falso (sin red ni tokens): `test_semantico.py`, `test_hibrido.py` y `test_buscar.py` (coseno, normalización, combinación y degradación al léxico), `test_embeddings_foundry.py` (lotes y errores del adaptador), `test_almacen_vectores.py` (indexado incremental, escritura atómica, archivos dañados y **aislamiento entre tenants**), `test_chat_retrieval.py` (el campo `retrieval`, el default por tenant y el costo en el tope diario), `test_tenants_retrieval.py`, `test_calibracion.py` y `test_script_calibrar.py`.
 - `test_accesskeys.py`, `test_sesiones.py`, `test_acceso.py` y `test_admin_keys.py` prueban las access keys: creación, hash, vencimiento, revocación, cupos atómicos con varios hilos, sesiones firmadas, el chat protegido y los endpoints del admin. Usan relojes falsos y carpetas temporales.
 
 ## Limitaciones conocidas
@@ -198,14 +228,14 @@ python -m pytest -q
 - ⚠️ **`POST /admin/content` se protege con una única API key compartida** (header `X-API-Key`, variable `MIROB_ADMIN_API_KEY`). Es una solución **temporal** ([ADR 0002](docs/adr/0002-api-key-temporal-admin.md)): sin rate limiting, sin rotación y sin identidad por usuario. Se reemplazará por autenticación propia (ver roadmap).
 - Si `MIROB_ADMIN_API_KEY` no está configurada, el admin queda **deshabilitado** (503) en vez de abierto.
 - Los archivos subidos se validan: nombre sin carpetas ni caracteres raros, extensión `.md`/`.txt`, UTF-8 y hasta 1 MB. El nombre no se "limpia": si es inválido se rechaza (422).
-- El retrieval es **léxico**: depende de que la pregunta comparta palabras con el chunk. Las preguntas con sinónimos o parafraseadas pueden fallar; ver [ADR 0001](docs/adr/0001-retrieval-lexico-tfidf.md).
+- El retrieval por defecto es **léxico**: depende de que la pregunta comparta palabras con el chunk, y las preguntas con sinónimos o parafraseadas pueden fallar ([ADR 0001](docs/adr/0001-retrieval-lexico-tfidf.md)). Los modos semántico e híbrido lo mejoran, pero cada tenant tiene que calibrarlos antes de activarlos ([ADR 0011](docs/adr/0011-retrieval-semantico-con-embeddings.md)).
 
 ## Roadmap
 
 | Etapa | Alcance | Estado |
 |---|---|---|
 | 1 | Ingesta de .txt/.md, retrieval léxico (TF-IDF + coseno), API y chat en React | En curso |
-| 2 | Azure AI Foundry: embeddings semánticos, búsqueda híbrida, generación con citas, evals y observabilidad con OpenTelemetry | Planificada |
+| 2 | Azure AI Foundry: embeddings semánticos y búsqueda híbrida (hecho, falta calibrar cada tenant; [ADR 0011](docs/adr/0011-retrieval-semantico-con-embeddings.md)), generación con citas, evals y observabilidad con OpenTelemetry | En curso |
 | 3 | Acceso de reclutadores con access keys, deploy en Azure Container Apps y Static Web Apps, CI/CD | Planificada |
 
 ## Principio de diseño
@@ -227,3 +257,4 @@ Diagramas C4 (contexto, contenedores, componentes y despliegue) y flujos clave: 
 - [ADR 0008 — Foundry: autenticación, modelo y comportamiento del asistente](docs/adr/0008-foundry-autenticacion-modelo-y-prompts.md)
 - [ADR 0009 — Contenido de los tenants y reindexado automático](docs/adr/0009-contenido-de-tenants-y-reindexado-automatico.md)
 - [ADR 0010 — Acceso de reclutadores con access keys, sesiones firmadas y cupos](docs/adr/0010-access-keys-de-reclutadores.md)
+- [ADR 0011 — Retrieval semántico e híbrido con embeddings, sin Azure AI Search](docs/adr/0011-retrieval-semantico-con-embeddings.md)

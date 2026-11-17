@@ -6,7 +6,7 @@ import AdminLogin from "./AdminLogin.jsx";
 import AdminScreen from "./AdminScreen.jsx";
 import KeysScreen from "./KeysScreen.jsx";
 import Portada from "./Portada.jsx";
-import { MODOS } from "./modos.js";
+import { MODOS, RETRIEVALS } from "./modos.js";
 
 // Pocas pantallas (ver CLAUDE.md: nada de router todavía, sería
 // sobrekill para esto). El tab activo es estado simple de React.
@@ -21,6 +21,8 @@ const TABS = [
 //   &embed=1              vista pública: sin pestañas, selector de tenant ni modo.
 //                         Sirve para el <iframe> del sitio y también como enlace directo.
 //   &mode=raw|humanized|foundry   modo inicial (en embed, por defecto "foundry")
+//   &retrieval=lexico|semantico|hibrido   retrieval inicial del selector (solo en la vista de auditoría; en
+//                         embed se ignora: el widget público no lo manda y lo decide el servidor por tenant)
 //   &header=0             en embed, sin la barra superior (el sitio que lo embebe pone la suya)
 // Sin embed=1 el front es el panel de administración: queda oculto tras un minilogin (la clave de admin,
 // validada por la API) y solo se llega a ese login con #admin al final de la URL. Quien abre la URL sin nada
@@ -35,6 +37,10 @@ const MODO_INICIAL = MODOS.some((modo) => modo.id === modoPedido)
   : EMBED
     ? "foundry"
     : "raw";
+const retrievalPedido = parametros.get("retrieval");
+// "" = sin elegir: no se manda el campo y rige el retrieval por defecto del tenant.
+const RETRIEVAL_INICIAL =
+  !EMBED && RETRIEVALS.some((retrieval) => retrieval.id && retrieval.id === retrievalPedido) ? retrievalPedido : "";
 
 function App() {
   const [tabActivo, setTabActivo] = useState("chat");
@@ -142,6 +148,7 @@ function App() {
         tenantListo={apiLista}
         embed={EMBED}
         modoInicial={MODO_INICIAL}
+        retrievalInicial={RETRIEVAL_INICIAL}
       />
     );
   }

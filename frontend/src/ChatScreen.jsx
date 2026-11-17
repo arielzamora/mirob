@@ -3,6 +3,7 @@ import "./ChatScreen.css";
 import { postChat } from "./api.js";
 import ChatMeta from "./ChatMeta.jsx";
 import ModeSwitch from "./ModeSwitch.jsx";
+import { RETRIEVALS } from "./modos.js";
 import RobotEspera from "./RobotEspera.jsx";
 import { CODIGOS_ACCESO_PERDIDO } from "./useAcceso.js";
 
@@ -33,7 +34,9 @@ function armarHistorial(mensajes) {
 // `tenantId` define con qué cliente se conversa. El padre usa `key={tenantId}`, así que
 // al cambiar de tenant este componente se remonta y el historial arranca vacío:
 // nunca se mezclan conversaciones de distintos tenants.
-// `embed` = widget/enlace público: sin selector de modo ni detalle de auditoría.
+// `embed` = widget/enlace público: sin selectores de modo ni de retrieval, ni detalle de auditoría. Nunca manda
+// `retrieval`: lo decide el servidor según el tenant.
+// `retrievalInicial` = retrieval con el que arranca el selector ("" = el del tenant).
 // `conectando` = la API todavía no respondió al primer pedido de la página (puede estar
 // arrancando); se muestra el robot en lugar del saludo, pero igual se puede escribir.
 // `sessionToken` = sesión del acceso por access key (solo en tenants privados).
@@ -45,6 +48,7 @@ function ChatScreen({
   tenantNombre,
   embed,
   modoInicial,
+  retrievalInicial = "",
   conectando = false,
   sessionToken = null,
   onAccesoPerdido = null,
@@ -56,6 +60,7 @@ function ChatScreen({
   const [mensajes, setMensajes] = useState([]);
   const [pregunta, setPregunta] = useState("");
   const [modo, setModo] = useState(modoInicial);
+  const [retrieval, setRetrieval] = useState(retrievalInicial);
   const [enviando, setEnviando] = useState(false);
   const [esperaLarga, setEsperaLarga] = useState(false);
 
@@ -98,6 +103,8 @@ function ChatScreen({
         mode: modo,
         conversationHistory,
         sessionToken,
+        // En el widget público no hay selector: no se manda y rige el default del tenant.
+        retrieval: embed ? "" : retrieval,
       });
       if (onPreguntasRestantes && resultado.remaining_questions != null) {
         onPreguntasRestantes(resultado.remaining_questions);
@@ -117,6 +124,9 @@ function ChatScreen({
             usage: resultado.usage,
             latencyMs: resultado.latency_ms,
             deployment: resultado.deployment,
+            retrievalUsed: resultado.retrieval_used,
+            retrievalFallbackReason: resultado.retrieval_fallback_reason,
+            embeddingUsage: resultado.embedding_usage,
             chunks: resultado.chunks,
           },
         },
@@ -143,6 +153,14 @@ function ChatScreen({
       {!embed && (
         <div className="chat-screen__barra">
           <ModeSwitch value={modo} onChange={setModo} disabled={enviando} />
+          <ModeSwitch
+            value={retrieval}
+            onChange={setRetrieval}
+            disabled={enviando}
+            opciones={RETRIEVALS}
+            leyenda="Retrieval (cómo se buscan los chunks)"
+            grupo="retrieval"
+          />
         </div>
       )}
 

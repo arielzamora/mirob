@@ -6,7 +6,7 @@ Todo se despliega con GitHub Actions ([.github/workflows/deploy.yml](../.github/
 tests (ci.yml) → imagen Docker en GHCR → Bicep (rg-mirob) → front en Static Web Apps → smoke test
 ```
 
-Si los tests fallan, no se publica nada. El Bicep ([main.bicep](main.bicep)) define el backend (Container Apps), el share de Azure Files con el contenido, el front (Static Web Apps), los logs y el permiso de la identidad del backend sobre Foundry. El recurso de Foundry, su proyecto y el modelo **no** los toca: se crearon a mano (`rg-mirob`, `mirob-foundry-arielz`, proyecto `mirob`, deployment `mirob-chat`).
+Si los tests fallan, no se publica nada. El Bicep ([main.bicep](main.bicep)) define el backend (Container Apps), el share de Azure Files con el contenido, el front (Static Web Apps), los logs y el permiso de la identidad del backend sobre Foundry. El recurso de Foundry, su proyecto y los modelos **no** los toca: se crearon a mano (`rg-mirob`, `mirob-foundry-arielz`, proyecto `mirob`, deployments `mirob-chat` y `text-embedding-3-small`). El Bicep solo los **referencia** por nombre (`chatDeploymentName`, `embeddingsDeploymentName`) y los pasa como variables de entorno al backend.
 
 ## Preparación (se hace una sola vez)
 
@@ -100,6 +100,17 @@ curl -X POST https://<api>/admin/reindex -H "X-API-Key: <tu-clave>"
 
 La URL de la API (`<api>`) está en el log del job *Desplegar infraestructura* y en el portal (*Container Apps → ca-mirob-api*).
 
+## Deployment de embeddings (retrieval semántico)
+
+El retrieval semántico e híbrido ([ADR 0011](../docs/adr/0011-retrieval-semantico-con-embeddings.md)) necesita un deployment de embeddings en el **mismo proyecto de Foundry** que el de chat. Como el de chat, **se crea a mano** y el Bicep lo referencia como existente:
+
+1. En el portal de Foundry, desplegá un modelo de embeddings chico y multilingüe (hoy `text-embedding-3-small`) con deployment **GlobalStandard** (pago por token). El nombre del deployment es el que va en `embeddingsDeploymentName` de [main.bicepparam](main.bicepparam); si lo cambiás ahí, el próximo deploy actualiza `FOUNDRY_EMBEDDINGS_DEPLOYMENT` en la Container App.
+2. No hace falta ningún permiso nuevo en principio: la identidad del backend ya tiene el rol *Foundry User* sobre el **proyecto** y se autentica con Entra ID, sin claves. Si la primera consulta semántica falla por permisos, el chat responde igual con el léxico y deja el aviso en los logs; se prueba en local con `python -m labs.lab02_embeddings_smoke`.
+3. Sin ese deployment (o con el parámetro vacío), no pasa nada malo: los modos semántico e híbrido simplemente no están disponibles y el chat usa el léxico.
+4. El deployment **no activa nada por sí solo**: cada tenant tiene que calibrar su modo (`python -m scripts.calibrar_retrieval --tenant <id>`) y pegar el bloque `retrieval` en su `tenant.json`.
+
+Cambiar el modelo de embeddings (otro deployment o una versión nueva) deja inservibles los vectores guardados: el backend lo detecta por el nombre del deployment y recalcula todo en la próxima consulta (cuesta tokens la primera vez). Conviene recalibrar los umbrales después, porque cambia la escala del coseno. Los vectores se guardan en el share (`<tenant>/.vectores/`).
+
 ## Acceso de reclutadores (access keys)
 
 Orden **obligatorio** para publicar un tenant privado como `ariel-zamora` (si se cambia, el contenido real queda público un rato):
@@ -130,6 +141,7 @@ Para cortar un acceso: pestaña *Access keys* → **Revocar** (efecto inmediato)
 
 - Una sola réplica del backend (índice en memoria y límites por proceso). Ver [ADR 0003](../docs/adr/0003-multitenancy-y-aislamiento.md) y [0004](../docs/adr/0004-gobierno-de-costos-de-ia.md).
 - Escala a cero: la primera consulta tras un rato sin tráfico tarda unos segundos más.
+- Los vectores de embeddings viven en memoria por réplica y se persisten en el share por tenant (`.vectores/`): asumen una sola réplica. Ver [ADR 0011](../docs/adr/0011-retrieval-semantico-con-embeddings.md).
 - El share se monta con la clave de la cuenta de almacenamiento (limitación de Container Apps con Azure Files).
 - Las access keys viven en un JSON del share (`_keys/claves.json`): asumen una sola réplica. Ver [ADR 0010](../docs/adr/0010-access-keys-de-reclutadores.md).
 - Las actions están fijadas por versión mayor (`@v4`), no por SHA; Dependabot propone las actualizaciones.

@@ -11,11 +11,13 @@ archivos de su carpeta. Nunca se arma una matriz compartida entre tenants, así
 que el retrieval de uno no puede ver chunks de otro.
 """
 
+import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -57,6 +59,12 @@ class IndexState:
     carpeta: Path  # de dónde se armó el índice
     firma: tuple  # (nombre, fecha de modificación, tamaño) de cada archivo con el que se armó
     revisado_en: float  # cuándo se comparó la firma por última vez (según _reloj)
+    # Embeddings normalizados de los chunks (una fila por chunk, en el orden del corpus). None hasta la primera consulta
+    # semántica de este tenant: el retrieval léxico no los necesita. Si el contenido cambia se arma un IndexState
+    # nuevo, así que estos vectores nunca quedan desactualizados (ADR 0011).
+    vectores: np.ndarray | None = None
+    # Evita que dos consultas simultáneas vectoricen el corpus dos veces (como un `lock` en C#).
+    candado_vectores: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
 
 # tenant_id -> índice. Se completa en el primer reindex() de cada tenant (o en el

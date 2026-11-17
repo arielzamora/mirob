@@ -1,0 +1,22 @@
+{
+  "en_tema": [
+    { "pregunta": "¿A qué se dedica Camila?", "esperado": "## Perfil profesional" },
+    { "pregunta": "¿Tiene algún título o credencial?", "esperado": "## Certificaciones" },
+    { "pregunta": "¿Con qué lenguajes programa del lado del servidor?", "esperado": "## Stack técnico — Backend" },
+    { "pregunta": "¿Sabe armar interfaces web?", "esperado": "## Stack técnico — Frontend" },
+    { "pregunta": "¿Maneja la nube y los despliegues?", "esperado": "## Stack técnico — Infraestructura" },
+    { "pregunta": "¿En qué empresa está hoy?", "esperado": "## Experiencia actual — Acme Robotics" },
+    { "pregunta": "¿Dónde trabajaba antes?", "esperado": "## Experiencia previa — Globex Logística" },
+    { "pregunta": "¿En qué ciudad reside?", "esperado": "## Origen y residencia" },
+    { "pregunta": "¿Qué hace en su tiempo libre?", "esperado": "## Hobbies y pasatiempos" },
+    { "pregunta": "¿Qué lenguas habla?", "esperado": "## Idiomas" },
+    { "pregunta": "¿Cómo conduce a su equipo?", "esperado": "## Estilo de liderazgo" },
+    { "pregunta": "¿Cómo reacciona bajo presión?", "esperado": "## Manejo del estrés" }
+  ],
+  "fuera_de_tema": [
+    "¿Cuál es la capital de Mongolia?",
+    "¿Cómo se prepara una tortilla de papas?",
+    "¿Quién ganó el último mundial de fútbol?",
+    "xyzzy plugh"
+  ]
+}

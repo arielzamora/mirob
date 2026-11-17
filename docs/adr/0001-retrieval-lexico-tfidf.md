@@ -71,3 +71,5 @@ Se usa la **opción 1** en la Etapa 1.
 
 - Etapa 2: embeddings semánticos y búsqueda híbrida, medidos contra esta línea base con
   un golden set (ver el roadmap del README).
+  - **Hecho:** los modos semántico e híbrido existen junto al léxico, que sigue como default y respaldo
+    ([ADR 0011](0011-retrieval-semantico-con-embeddings.md)). Falta calibrarlos por tenant y medir Recall@k y MRR contra esta línea base.

@@ -15,7 +15,7 @@ primero el formato (regex) y después que exista en el registro.
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.origenes import validar_origen
@@ -56,6 +56,44 @@ class TenantConfigError(ValueError):
     """La configuración versionada de un tenant está rota (error del servidor, no del cliente)."""
 
 
+PESO_SEMANTICO_POR_DEFECTO = 0.7
+RETRIEVALS_VALIDOS = ("lexico", "semantico", "hibrido")
+
+
+@dataclass(frozen=True)
+class ConfigHibrido:
+    """Cómo se combinan los dos puntajes en el modo híbrido (ADR 0011).
+
+    El coseno de TF-IDF y el de embeddings viven en escalas distintas (el de embeddings casi nunca baja de ~0,2 aunque
+    el texto no tenga relación), así que antes de combinarlos cada uno se lleva a [0, 1]: `piso` es lo que vale "nada
+    relacionado" (da 0) y `techo` lo que vale "muy relacionado" (da 1). Los dos salen de la calibración del tenant.
+    `umbral` está en esa escala normalizada.
+    """
+
+    umbral: float
+    peso_semantico: float  # 0 = solo léxico, 1 = solo semántico; el léxico pesa (1 - peso_semantico)
+    piso_lexico: float
+    techo_lexico: float
+    piso_semantico: float
+    techo_semantico: float
+
+
+@dataclass(frozen=True)
+class ConfigRetrieval:
+    """Umbrales de los retrievals que usan embeddings (el léxico usa `TenantConfig.umbral_similitud`).
+
+    La escala del coseno con embeddings no se parece a la de TF-IDF (ADR 0001), así que cada modo lleva su propio
+    umbral, calibrado por tenant. `None` = ese modo todavía no se calibró y NO está disponible: el chat responde
+    con el retrieval léxico en su lugar.
+    """
+
+    umbral_semantico: float | None = None
+    hibrido: ConfigHibrido | None = None
+    # Con qué retrieval responde el tenant cuando el pedido no dice nada (el widget público no lo manda). Solo puede
+    # ser un modo ya calibrado; el léxico siempre está disponible y es el default hasta calibrar (ADR 0011).
+    por_defecto: str = "lexico"
+
+
 # frozen=True: inmutable, como un `record` de C#.
 @dataclass(frozen=True)
 class TenantConfig:
@@ -71,6 +109,83 @@ class TenantConfig:
     acceso: str = ACCESO_PUBLICO  # "publico" o "access_key" (chat solo con una key vigente)
     # Texto para quien llega con una key vencida o revocada (cómo pedir una nueva). Lo escribe el dueño.
     contacto_acceso: str | None = None
+    retrieval: ConfigRetrieval = ConfigRetrieval()  # umbrales de los modos con embeddings (opcional)
+
+
+def _numero(valor: object, minimo: float, maximo: float) -> float | None:
+    """El valor como float si es un número (no un bool) dentro de [minimo, maximo]; si no, None."""
+    # bool es subclase de int en Python: se descarta a propósito (true/false no es un número de configuración).
+    if not isinstance(valor, (int, float)) or isinstance(valor, bool) or not minimo <= valor <= maximo:
+        return None
+    return float(valor)
+
+
+def _cargar_hibrido(datos: object, nombre_tenant: str) -> ConfigHibrido:
+    """Lee retrieval.hibrido: umbral, peso_semantico (opcional) y los pisos/techos de normalización."""
+    ruta = f"retrieval.hibrido de '{nombre_tenant}'"
+    if not isinstance(datos, dict):
+        raise TenantConfigError(f"{ruta} debe ser un objeto.")
+
+    umbral = _numero(datos.get("umbral"), 0.0, 1.0)
+    if umbral is None:
+        raise TenantConfigError(f"{ruta}: 'umbral' debe ser un número entre 0 y 1.")
+    peso = _numero(datos.get("peso_semantico", PESO_SEMANTICO_POR_DEFECTO), 0.0, 1.0)
+    if peso is None:
+        raise TenantConfigError(f"{ruta}: 'peso_semantico' debe ser un número entre 0 y 1.")
+
+    # Los cosenos van de -1 a 1; en la práctica de 0 a 1, pero un modelo puede dar valores levemente negativos.
+    limites = {}
+    for senal in ("lexico", "semantico"):
+        piso = _numero(datos.get(f"piso_{senal}"), -1.0, 1.0)
+        techo = _numero(datos.get(f"techo_{senal}"), -1.0, 1.0)
+        if piso is None or techo is None:
+            raise TenantConfigError(f"{ruta}: 'piso_{senal}' y 'techo_{senal}' deben ser números entre -1 y 1.")
+        if techo <= piso:
+            raise TenantConfigError(f"{ruta}: 'techo_{senal}' ({techo}) debe ser mayor que 'piso_{senal}' ({piso}).")
+        limites[senal] = (piso, techo)
+
+    return ConfigHibrido(
+        umbral=umbral,
+        peso_semantico=peso,
+        piso_lexico=limites["lexico"][0],
+        techo_lexico=limites["lexico"][1],
+        piso_semantico=limites["semantico"][0],
+        techo_semantico=limites["semantico"][1],
+    )
+
+
+def _cargar_retrieval(datos: object, nombre_tenant: str) -> ConfigRetrieval:
+    """Lee el bloque opcional `retrieval` de tenant.json: {"semantico": {"umbral": 0.45}, "hibrido": {...}}."""
+    if datos is None:
+        return ConfigRetrieval()
+    if not isinstance(datos, dict):
+        raise TenantConfigError(f"retrieval de '{nombre_tenant}' debe ser un objeto.")
+
+    umbral_semantico = None
+    semantico = datos.get("semantico")
+    if semantico is not None:
+        umbral_semantico = _numero(semantico.get("umbral") if isinstance(semantico, dict) else None, 0.0, 1.0)
+        if umbral_semantico is None:
+            raise TenantConfigError(f"retrieval.semantico.umbral de '{nombre_tenant}' debe ser un número entre 0 y 1.")
+
+    hibrido = datos.get("hibrido")
+    config = ConfigRetrieval(
+        umbral_semantico=umbral_semantico,
+        hibrido=None if hibrido is None else _cargar_hibrido(hibrido, nombre_tenant),
+    )
+
+    por_defecto = datos.get("por_defecto", "lexico")
+    if por_defecto not in RETRIEVALS_VALIDOS:
+        raise TenantConfigError(f"retrieval.por_defecto de '{nombre_tenant}' debe ser uno de {RETRIEVALS_VALIDOS}.")
+    # Un default sin calibrar dejaría al tenant respondiendo siempre con el léxico sin que la config lo diga: se avisa.
+    sin_calibrar = (por_defecto == "semantico" and umbral_semantico is None) or (
+        por_defecto == "hibrido" and config.hibrido is None
+    )
+    if sin_calibrar:
+        raise TenantConfigError(
+            f"retrieval.por_defecto de '{nombre_tenant}' es '{por_defecto}', pero ese modo no tiene su bloque calibrado."
+        )
+    return replace(config, por_defecto=por_defecto)
 
 
 def validar_tenant_id(tenant_id: str) -> str:
@@ -131,6 +246,7 @@ def _cargar_config(carpeta: Path) -> tuple[TenantConfig, bool]:
         tope_diario_tokens=tope,
         acceso=acceso,
         contacto_acceso=contacto,
+        retrieval=_cargar_retrieval(datos.get("retrieval"), carpeta.name),
     )
     return config, bool(datos.get("habilitado", True))
 

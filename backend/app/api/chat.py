@@ -20,6 +20,7 @@ from app.api.acceso import encabezado_autorizacion, exigir_acceso_al_chat, gasta
 from app.api.dependencias import (
     ip_del_cliente,
     limitar_chat,
+    obtener_embeddings,
     obtener_estado_limites,
     obtener_generador,
     obtener_reloj,
@@ -27,12 +28,18 @@ from app.api.dependencias import (
     resolver_tenant,
     responder_429,
 )
-from app.finops import EstadoLimites, GeneradorConPresupuesto, LimiteExcedido, PresupuestoAgotado
+from app.finops import (
+    EstadoLimites,
+    GeneradorConPresupuesto,
+    GeneradorEmbeddingsConPresupuesto,
+    LimiteExcedido,
+    PresupuestoAgotado,
+)
 from app.chunk_format import extract_answer, extract_header
-from app.foundry.tipos import FoundryError, FoundryNoConfigurado, GeneradorTexto
+from app.foundry.tipos import FoundryError, FoundryNoConfigurado, GeneradorEmbeddings, GeneradorTexto
+from app.rag.buscar import Retrieval, buscar
 from app.rag.generate import Turno, generar_respuesta
 from app.rag.humanize import humanizar
-from app.rag.retrieve import top_k
 from app.reindex import get_state
 
 # Tope de la pregunta: evita abusos y mantiene acotado el costo de tokens.
@@ -69,6 +76,9 @@ class ChatRequest(BaseModel):
     message: str = Field(max_length=MAX_CARACTERES_MENSAJE)
     conversation_history: list[MensajeHistorial] | None = Field(default=None, max_length=MAX_MENSAJES_HISTORIAL)
     mode: Literal["raw", "humanized", "foundry"] = "raw"
+    # Cómo se buscan los chunks (independiente de `mode`, que es cómo se redacta la respuesta). Si no viene, rige el
+    # `retrieval.por_defecto` del tenant (el léxico hasta que se calibren los modos con embeddings, ADR 0011).
+    retrieval: Retrieval | None = None
 
     @field_validator("message")
     @classmethod
@@ -114,6 +124,11 @@ class ChatResponse(BaseModel):
     deployment: str | None = None  # con qué deployment respondió; None si no se llamó
     # Preguntas que le quedan a la access key después de esta; None si el tenant es público o la key no tiene cupo.
     remaining_questions: int | None = None
+    # Con qué retrieval se buscó DE VERDAD (puede diferir del pedido) y, si difiere, por qué. `threshold` es el de ese retrieval.
+    retrieval_used: str = "lexico"
+    retrieval_fallback_reason: str | None = None
+    # Tokens de embeddings de este pedido (consulta y, la primera vez, los chunks). Aparte de `usage`, que es del LLM.
+    embedding_usage: UsoTokens = UsoTokens()
 
 
 # --- Endpoint -------------------------------------------------------------
@@ -124,6 +139,7 @@ def chat(
     request: ChatRequest,
     http_request: Request,
     generador: GeneradorTexto = Depends(obtener_generador),
+    embeddings: GeneradorEmbeddings = Depends(obtener_embeddings),
     estado: EstadoLimites = Depends(obtener_estado_limites),
     autorizacion: str | None = Depends(encabezado_autorizacion),
     servicio_claves: ServicioClaves = Depends(obtener_servicio_claves),
@@ -161,7 +177,17 @@ def chat(
     if key_id is not None:
         preguntas_restantes = gastar_pregunta(tenant, key_id, servicio_claves, estado)
 
-    resultado = top_k(request.message, state.vectorizer, state.matrix, state.corpus, k=CANTIDAD_CHUNKS)
+    # El retrieval pedido, o el léxico si no se puede cumplir (nunca un error). Los embeddings pasan por el decorador
+    # de presupuesto: sus tokens cuentan en el tope diario igual que los del LLM.
+    busqueda = buscar(
+        request.retrieval or tenant.retrieval.por_defecto,
+        request.message,
+        tenant,
+        state,
+        GeneradorEmbeddingsConPresupuesto(embeddings, estado, tenant),
+        CANTIDAD_CHUNKS,
+    )
+    resultado = busqueda.resultado
     mejor = resultado.iloc[0]
     top_score = float(mejor["similarity"])
 
@@ -175,7 +201,9 @@ def chat(
         try:
             # El decorador aplica límite por IP y tope diario SOLO si se llega a llamar al LLM.
             generador_limitado = GeneradorConPresupuesto(generador, estado, tenant, ip_del_cliente(http_request))
-            generada = generar_respuesta(tenant, request.message, resultado, historial, generador_limitado)
+            generada = generar_respuesta(
+                tenant, request.message, resultado, historial, generador_limitado, umbral=busqueda.umbral
+            )
         except LimiteExcedido as error:
             raise responder_429(
                 error.reintentar_en, "Demasiadas consultas al asistente en poco tiempo. Probá más tarde."
@@ -198,7 +226,14 @@ def chat(
             total_tokens=generada.tokens_total,
         )
         # Solo números y el tenant: nunca el mensaje ni la respuesta (pueden tener datos personales).
-        logger.info("chat foundry tenant=%s llm=%s tokens=%d", tenant.tenant_id, llm_called, usage.total_tokens)
+        logger.info(
+            "chat foundry tenant=%s retrieval=%s llm=%s tokens=%d embeddings=%d",
+            tenant.tenant_id,
+            busqueda.retrieval_usado,
+            llm_called,
+            usage.total_tokens,
+            busqueda.tokens_embeddings,
+        )
     elif request.mode == "humanized":
         answer = humanizar(request.message, extract_answer(mejor["text"]), top_score)
     else:
@@ -220,12 +255,17 @@ def chat(
         mode=request.mode,
         answer=answer,
         top_score=top_score,
-        threshold=tenant.umbral_similitud,
-        below_threshold=top_score < tenant.umbral_similitud,
+        threshold=busqueda.umbral,
+        below_threshold=top_score < busqueda.umbral,
         llm_called=llm_called,
         chunks=chunks,
         usage=usage,
         latency_ms=latency_ms,
         deployment=deployment,
         remaining_questions=preguntas_restantes,
+        retrieval_used=busqueda.retrieval_usado,
+        retrieval_fallback_reason=busqueda.motivo_degradacion,
+        embedding_usage=UsoTokens(
+            input_tokens=busqueda.tokens_embeddings, total_tokens=busqueda.tokens_embeddings
+        ),
     )

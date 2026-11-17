@@ -71,3 +71,5 @@ pretensión salarial). Las variantes de pregunta se evitan con verbos genéricos
 
 - Respaldo del contenido (por ejemplo, un repositorio privado aparte o copias del share).
 - Embeddings semánticos para reducir la dependencia de la redacción de las preguntas.
+  - **Hecho** ([ADR 0011](0011-retrieval-semantico-con-embeddings.md)): al cambiar la huella del contenido, los vectores de un tenant se
+    recalculan solo para los chunks nuevos o modificados (comparando el sha256 de su texto) y se guardan en `<tenant>/.vectores/`.

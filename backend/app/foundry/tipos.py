@@ -6,8 +6,11 @@ Es el equivalente a una interfaz `ITextGenerator` en C# que se inyecta por DI;
 los tests le pasan un falso y la API real le pasa FoundryGenerador.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
+
+import numpy as np
 
 # Tope de tokens de SALIDA por respuesta (política de costos, FinOps). Una respuesta
 # de ~250 tokens son tres o cuatro oraciones: alcanza para un chat y acota el gasto. En un modelo
@@ -47,4 +50,31 @@ class GeneradorTexto(Protocol):
 
     def generar(self, instrucciones: str, mensaje: str, max_tokens_salida: int = MAX_TOKENS_SALIDA) -> ChatResult:
         """Genera texto o lanza FoundryError."""
+        ...
+
+
+@dataclass(frozen=True)
+class ResultadoEmbeddings:
+    """Lo que devuelve una llamada al modelo de embeddings."""
+
+    # Una fila por texto, en el MISMO orden en que se pidieron. Sin normalizar: eso lo hace el dominio (app/rag/semantico.py).
+    vectores: np.ndarray
+    tokens: int  # tokens de entrada que facturó la llamada (los embeddings no tienen salida)
+    deployment: str  # con qué deployment de embeddings se calculó
+    latencia_ms: float  # suma de las llamadas, medida del lado nuestro
+
+
+class GeneradorEmbeddings(Protocol):
+    """Cualquier objeto que convierta textos en vectores (FoundryEmbeddings, o un falso en los tests)."""
+
+    def deployment(self) -> str:
+        """Nombre del deployment de embeddings, o FoundryNoConfigurado si no hay. NO llama a Azure.
+
+        Lo usa el almacén de vectores para saber, antes de calcular nada, si lo guardado en disco es del mismo modelo:
+        vectores de otro modelo no se pueden comparar con los de la pregunta (ADR 0011).
+        """
+        ...
+
+    def embeber(self, textos: Sequence[str]) -> ResultadoEmbeddings:
+        """Devuelve un vector por texto (en lotes si hace falta) o lanza FoundryError."""
         ...

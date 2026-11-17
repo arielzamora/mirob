@@ -2,7 +2,7 @@
 
 React + Vite. Dos pantallas:
 
-- **Chat** (`src/ChatScreen.jsx`): pregunta, historial en estado local y un **switch de modo** (`Raw` / `Humanizado` / `Foundry`, `src/ModeSwitch.jsx`). Cada respuesta muestra el score, el umbral del tenant, el costo en tokens (modo Foundry) y los chunks recuperados (`src/ChatMeta.jsx`) para auditar el retrieval.
+- **Chat** (`src/ChatScreen.jsx`): pregunta, historial en estado local y dos **switches** (`src/ModeSwitch.jsx`, el mismo componente con distintas opciones): el **modo de respuesta** (`Raw` / `Humanizado` / `Foundry`) y el **retrieval** (`Del tenant` / `Léxico` / `Semántico` / `Híbrido`, cómo se buscan los chunks). `Del tenant` no manda el campo y rige el retrieval por defecto del tenant, lo mismo que ve el widget público. Cada respuesta muestra el retrieval usado (y por qué se usó el léxico si el pedido no se pudo cumplir), el score, el umbral de ese retrieval, los tokens de embeddings, los del LLM y el total, y los chunks recuperados (`src/ChatMeta.jsx`) para auditar y comparar los modos con la misma pregunta.
 - **Carga de contenido** (`src/AdminScreen.jsx`): una caja para subir un `.md` o `.txt` al tenant elegido.
 
 El **selector de tenant** está en el header y se alimenta de `GET /api/v1/tenants`. Al cambiar de tenant el chat se reinicia (nunca se mezclan conversaciones) y la URL queda con `?tenant=...`.
@@ -18,6 +18,7 @@ Ver el [README principal](../README.md) para levantar la API.
 | `&embed=1` | **Vista pública**: sin pestañas, sin selector de tenant ni de modo, sin detalle de auditoría. Modo `foundry` por defecto. Sirve para el `<iframe>` del sitio y como enlace directo. |
 | `&header=0` | En `embed`, oculta la barra superior (el sitio que lo embebe pone la suya). |
 | `&mode=raw\|humanized\|foundry` | Modo inicial (en `embed`, por defecto `foundry`; si no, `raw`). |
+| `&retrieval=lexico\|semantico\|hibrido` | Retrieval inicial del selector. Solo en la vista de auditoría: con `embed=1` se ignora (el widget público nunca manda `retrieval`; lo decide el servidor por tenant). |
 | `#admin` | Solo sin `embed=1`: abre el minilogin del panel de administración (clave de admin, validada por la API). Sin eso, la URL muestra una portada neutra. |
 
 Ejemplo de widget para un sitio institucional:

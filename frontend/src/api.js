@@ -70,7 +70,9 @@ export async function postAcceso(tenantId, key) {
 // El límite de 350 caracteres de `message` y el de 1000 por mensaje del historial
 // los valida el backend (422); el front los respeta para no mandar requests inválidos.
 // `sessionToken` solo se manda en los tenants que exigen access key.
-export async function postChat({ tenantId, message, mode, conversationHistory, sessionToken }) {
+// `retrieval` ("lexico" | "semantico" | "hibrido") es opcional: sin él, el servidor usa el retrieval por defecto del
+// tenant. Solo lo manda la vista de auditoría; el widget público nunca lo manda.
+export async function postChat({ tenantId, message, mode, conversationHistory, sessionToken, retrieval = "" }) {
   const headers = { "Content-Type": "application/json" };
   if (sessionToken) {
     headers.Authorization = `Bearer ${sessionToken}`;
@@ -84,6 +86,8 @@ export async function postChat({ tenantId, message, mode, conversationHistory, s
       message,
       mode,
       conversation_history: conversationHistory,
+      // `undefined` no se serializa: el campo directamente no viaja cuando no se eligió retrieval.
+      retrieval: retrieval || undefined,
     }),
   });
 

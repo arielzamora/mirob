@@ -19,6 +19,10 @@ VAR_CHAT = "FOUNDRY_CHAT_DEPLOYMENT"
 VAR_EMBEDDINGS = "FOUNDRY_EMBEDDINGS_DEPLOYMENT"
 VAR_REASONING_EFFORT = "FOUNDRY_REASONING_EFFORT"
 VAR_TEMPERATURE = "FOUNDRY_TEMPERATURE"
+# Cuántos textos viajan en cada llamada a embeddings. Un lote chico evita pasarse del cupo por minuto
+# del deployment; uno grande hace menos llamadas. No es un secreto ni depende del tenant.
+VAR_LOTE_EMBEDDINGS = "MIROB_EMBEDDINGS_BATCH"
+LOTE_EMBEDDINGS_POR_DEFECTO = 32
 
 # Valores de `reasoning.effort` que acepta el SDK de openai instalado. Qué valores admite cada
 # MODELO lo decide Azure: si el deployment rechaza uno, el smoke test lo muestra con un 400.
@@ -44,7 +48,8 @@ class FoundrySettings:
     # Nombre del DEPLOYMENT de chat (el que ponés vos en el portal), no el del modelo.
     # `responses.create(model=...)` recibe este nombre.
     chat_deployment: str
-    # Deployment de embeddings. Opcional: todavía no se usa (Etapa 2.1).
+    # Deployment de embeddings (retrieval semántico, ADR 0011). Opcional: sin él, los modos semántico e
+    # híbrido no están disponibles y el chat responde con el retrieval léxico.
     embeddings_deployment: str | None = None
     # Los modelos de razonamiento (familia gpt-5) cuentan los tokens de "pensar" dentro del tope de
     # salida y no aceptan `temperature` con razonamiento activo. Por eso ninguno de estos dos se
@@ -111,6 +116,23 @@ class FoundrySettings:
             reasoning_effort=reasoning_effort,
             temperature=temperature,
         )
+
+
+def leer_lote_embeddings(env: Mapping[str, str] | None = None) -> int:
+    """MIROB_EMBEDDINGS_BATCH como entero positivo, o el valor por defecto si no está definida."""
+    if env is None:
+        cargar_env()
+        env = os.environ
+    texto = _leer(env, VAR_LOTE_EMBEDDINGS)
+    if not texto:
+        return LOTE_EMBEDDINGS_POR_DEFECTO
+    try:
+        valor = int(texto)
+    except ValueError:
+        valor = 0
+    if valor <= 0:
+        raise FoundryConfigError(f"{VAR_LOTE_EMBEDDINGS} debe ser un entero positivo (recibido: {texto!r}).")
+    return valor
 
 
 def _leer(env: Mapping[str, str], nombre: str) -> str:

@@ -8,7 +8,9 @@
 
 .chat-screen__barra {
   display: flex;
+  flex-wrap: wrap; /* con dos selectores (modo y retrieval), en pantallas angostas pasan a dos filas */
   justify-content: center;
+  gap: 8px 12px;
 }
 
 .chat-screen__historial {
