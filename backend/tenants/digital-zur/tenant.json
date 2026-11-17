@@ -8,16 +8,16 @@
   ],
   "habilitado": true,
   "retrieval": {
-    "por_defecto": "hibrido",
+  "por_defecto": "hibrido",
     "semantico": {
-      "umbral": 0.397
+      "umbral": 0.314
     },
     "hibrido": {
-      "umbral": 0.101,
-      "peso_semantico": 0.7,
-      "piso_lexico": 0.336,
+      "umbral": 0.078,
+      "peso_semantico": 0.8,
+      "piso_lexico": 0.149,
       "techo_lexico": 0.591,
-      "piso_semantico": 0.388,
+      "piso_semantico": 0.292,
       "techo_semantico": 0.519
     }
   }

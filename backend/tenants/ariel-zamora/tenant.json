@@ -11,7 +11,7 @@
     "hibrido": {
       "umbral": 0.033,
       "peso_semantico": 0.7,
-      "piso_lexico": 0.442,
+      "piso_lexico": 0.14,
       "techo_lexico": 0.65,
       "piso_semantico": 0.413,
       "techo_semantico": 0.559
