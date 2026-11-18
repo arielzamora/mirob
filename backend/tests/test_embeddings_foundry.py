@@ -153,3 +153,21 @@ def test_el_tamano_de_lote_se_lee_del_entorno_o_usa_el_default() -> None:
 def test_un_tamano_de_lote_invalido_falla_con_un_mensaje_claro(valor: str) -> None:
     with pytest.raises(FoundryConfigError, match=VAR_LOTE_EMBEDDINGS):
         leer_lote_embeddings({VAR_LOTE_EMBEDDINGS: valor})
+
+
+def test_el_log_de_un_error_de_azure_incluye_estado_y_codigo_pero_no_el_mensaje(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    from openai import AuthenticationError
+
+    respuesta = httpx.Response(401, request=httpx.Request("POST", "https://x"))
+    error = AuthenticationError(
+        "mensaje con datos que no deben loguearse", response=respuesta, body={"code": "PermissionDenied", "message": "x"}
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(FoundryError):
+        _generador(ClienteFalso(error=error)).embeber(["hola"])
+
+    registro = "\n".join(caplog.messages)
+    assert "AuthenticationError estado=401 codigo=PermissionDenied" in registro
+    assert "datos que no deben loguearse" not in registro

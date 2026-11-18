@@ -36,8 +36,10 @@ el servidor por tenant. La vista de auditoría del front tiene un segundo select
 `FOUNDRY_EMBEDDINGS_DEPLOYMENT`. Mismo `DefaultAzureCredential`, mismo `AIProjectClient` y mismo token que el chat ([ADR 0008](0008-foundry-autenticacion-modelo-y-prompts.md)):
 **sin API keys**. **Pero otra ruta:** el chat usa la del proyecto (`…/api/projects/<proyecto>/openai/v1`), que **responde 404 sin cuerpo a
 `/embeddings`** (comprobado con `labs/lab02b_embeddings_diagnostico.py`); los embeddings se piden por la del **recurso**
-(`https://<recurso>.services.ai.azure.com/openai/v1`), con `get_openai_client(base_url=…)` y el mismo alcance
-(`https://ai.azure.com/.default`). El único código que importa el SDK es `app/foundry/embeddings.py` (y `client.py`); el dominio depende de un `Protocol`
+(`https://<recurso>.services.ai.azure.com/openai/v1`), con el mismo `DefaultAzureCredential` pero un token del alcance de
+**Cognitive Services** (`https://cognitiveservices.azure.com/.default`), el documentado para la API OpenAI v1 de un recurso.
+La primera versión usaba el alcance del chat (`https://ai.azure.com/.default`): funcionaba con la cuenta de quien desarrolla,
+pero en producción la identidad administrada recibía **401** aun con el rol *Foundry User* sobre el recurso. El único código que importa el SDK es `app/foundry/embeddings.py` (y `client.py`); el dominio depende de un `Protocol`
 (`GeneradorEmbeddings`), así que se prueba sin red con un generador falso. Los textos viajan **en lotes** (32 por defecto,
 `MIROB_EMBEDDINGS_BATCH`), no uno por chunk, y los vectores se **normalizan una sola vez**, con lo que el coseno es un
 producto punto (`app/rag/semantico.py`).

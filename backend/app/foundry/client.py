@@ -11,7 +11,7 @@ Las firmas están verificadas contra los paquetes instalados (azure-ai-projects
 from urllib.parse import urlparse
 
 from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import OpenAI
 
 from app.foundry.config import FoundrySettings
@@ -31,6 +31,8 @@ def crear_credencial() -> DefaultAzureCredential:
 # Alcance (scope) del token de Entra ID para Foundry. Verificado en el paquete instalado
 # (azure/ai/projects/_patch.py): es el que usa get_openai_client() para armar su token.
 ALCANCE_FOUNDRY = "https://ai.azure.com/.default"
+# Alcance del token para la API OpenAI v1 a nivel del recurso (la que usan los embeddings). Ver obtener_cliente_openai_recurso.
+ALCANCE_COGNITIVE = "https://cognitiveservices.azure.com/.default"
 
 
 def pedir_token(credencial: DefaultAzureCredential) -> None:
@@ -76,15 +78,23 @@ def url_openai_del_recurso(endpoint_del_proyecto: str) -> str:
     return f"https://{urlparse(endpoint_del_proyecto).netloc}/openai/v1"
 
 
-def obtener_cliente_openai_recurso(proyecto: AIProjectClient, endpoint_del_proyecto: str) -> OpenAI:
-    """Cliente de OpenAI contra la ruta del RECURSO, con el mismo token de Entra ID que el cliente del chat.
+def obtener_cliente_openai_recurso(credencial: DefaultAzureCredential, endpoint_del_proyecto: str) -> OpenAI:
+    """Cliente de OpenAI contra la ruta del RECURSO, con el token de Entra ID de **Cognitive Services**.
 
     Por qué existe: la ruta del proyecto (`<endpoint>/openai/v1`, la de `obtener_cliente_openai`) sirve el chat con la
     API Responses pero responde **404 sin cuerpo** a `/embeddings`. Verificado con labs/lab02b_embeddings_diagnostico.py:
-    la ruta del recurso sirve embeddings (1536 dimensiones con text-embedding-3-small) usando el MISMO token
-    (alcance https://ai.azure.com/.default), así que no hace falta otra credencial.
+    la ruta del recurso sirve embeddings (1536 dimensiones con text-embedding-3-small).
 
-    Firma verificada en el paquete instalado (azure-ai-projects 2.4.0): get_openai_client(*, agent_name=None, **kwargs)
-    acepta `base_url` y lo usa en lugar de la ruta por defecto.
+    Por qué el alcance de Cognitive Services y no el de Foundry (`ai.azure.com`): la primera versión usaba el mismo token
+    que el chat y funcionaba con la cuenta de quien desarrolla, pero en producción la identidad administrada de la
+    Container App recibía **401 (AuthenticationError)** aun con el rol *Foundry User* asignado sobre el recurso (el log
+    seguía fallando 35 minutos después). El alcance `https://cognitiveservices.azure.com/.default` es el documentado para
+    la API OpenAI v1 de un recurso, y también quedó verificado en local (opciones C y D del diagnóstico).
+
+    `get_bearer_token_provider` devuelve una función que pide y renueva el token sola; el cliente de OpenAI acepta una
+    función como `api_key` (así lo hace el propio SDK de Foundry), así que no se maneja ninguna clave.
     """
-    return proyecto.get_openai_client(base_url=url_openai_del_recurso(endpoint_del_proyecto))
+    return OpenAI(
+        base_url=url_openai_del_recurso(endpoint_del_proyecto),
+        api_key=get_bearer_token_provider(credencial, ALCANCE_COGNITIVE),
+    )

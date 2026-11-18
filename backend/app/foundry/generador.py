@@ -65,13 +65,14 @@ class FoundryGenerador:
     def obtener_cliente_embeddings(self) -> tuple[OpenAI, FoundrySettings]:
         """El cliente OpenAI para embeddings (ruta del recurso) y la configuración, creado una sola vez.
 
-        Es público porque FoundryEmbeddings lo recibe como su fuente de cliente. Comparte con el del chat el
-        AIProjectClient y, con él, el `DefaultAzureCredential` y su token: un solo login para todo el proceso.
+        Es público porque FoundryEmbeddings lo recibe como su fuente de cliente. Comparte con el del chat el mismo
+        `DefaultAzureCredential` (un solo login para todo el proceso), pero pide su token con el alcance de Cognitive
+        Services, que es el que acepta la ruta del recurso (ver client.obtener_cliente_openai_recurso).
         """
-        _, settings = self._obtener_cliente()  # asegura la configuración, la credencial y el proyecto
+        _, settings = self._obtener_cliente()  # asegura la configuración y la credencial
         with self._lock:
             if self._cliente_embeddings is None:
-                self._cliente_embeddings = obtener_cliente_openai_recurso(self._proyecto, settings.endpoint)
+                self._cliente_embeddings = obtener_cliente_openai_recurso(self._credencial, settings.endpoint)
             return self._cliente_embeddings, settings
 
     def precalentar(self) -> None:

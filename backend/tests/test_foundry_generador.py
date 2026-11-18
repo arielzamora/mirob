@@ -6,6 +6,7 @@ import httpx
 import pytest
 from openai import APIConnectionError
 
+import app.foundry.client as client_module
 import app.foundry.generador as generador_module
 from app.foundry.chat import generar
 from app.foundry.config import FoundryConfigError, FoundrySettings
@@ -168,19 +169,30 @@ class ProyectoFalso:
 
     def get_openai_client(self, **kwargs):
         self.pedidos.append(kwargs)
-        return SimpleNamespace(base_url=kwargs.get("base_url", "<ruta del proyecto>"))
+        return SimpleNamespace(base_url="<ruta del proyecto>")
+
+
+@pytest.fixture
+def alcances_pedidos(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Reemplaza get_bearer_token_provider (que pediría un token real) y anota para qué alcance se lo pidió."""
+    pedidos: list[str] = []
+
+    def proveedor_falso(credencial, alcance):
+        pedidos.append(alcance)
+        return lambda: "token-de-prueba"
+
+    monkeypatch.setattr(client_module, "get_bearer_token_provider", proveedor_falso)
+    return pedidos
 
 
 def test_url_del_recurso_sale_del_host_del_endpoint_del_proyecto() -> None:
-    from app.foundry.client import url_openai_del_recurso
-
-    assert url_openai_del_recurso("https://mi-recurso.services.ai.azure.com/api/projects/mirob") == (
+    assert client_module.url_openai_del_recurso("https://mi-recurso.services.ai.azure.com/api/projects/mirob") == (
         "https://mi-recurso.services.ai.azure.com/openai/v1"
     )
 
 
-def test_los_embeddings_salen_por_la_ruta_del_recurso_y_el_chat_por_la_del_proyecto(
-    monkeypatch: pytest.MonkeyPatch,
+def test_los_embeddings_salen_por_la_ruta_del_recurso_con_el_token_de_cognitive_services(
+    monkeypatch: pytest.MonkeyPatch, alcances_pedidos: list[str]
 ) -> None:
     proyecto = ProyectoFalso()
     credenciales: list[object] = []
@@ -192,16 +204,20 @@ def test_los_embeddings_salen_por_la_ruta_del_recurso_y_el_chat_por_la_del_proye
     cliente_chat, _ = generador.obtener_cliente()
     cliente_embeddings, settings = generador.obtener_cliente_embeddings()
 
-    assert cliente_chat.base_url == "<ruta del proyecto>"
-    assert cliente_embeddings.base_url == "https://x.services.ai.azure.com/openai/v1"
+    assert cliente_chat.base_url == "<ruta del proyecto>"  # el chat sigue por el proyecto y con su token
+    assert str(cliente_embeddings.base_url).rstrip("/") == "https://x.services.ai.azure.com/openai/v1"
+    # La ruta del recurso acepta el token de Cognitive Services; con el de Foundry la identidad de la Container App
+    # recibía 401 en producción (ver client.obtener_cliente_openai_recurso).
+    assert alcances_pedidos == ["https://cognitiveservices.azure.com/.default"]
     assert settings == SETTINGS
-    assert len(credenciales) == 1  # un solo login (y un solo token) para los dos clientes
+    assert len(credenciales) == 1  # un solo login (y una sola credencial) para los dos clientes
 
 
-def test_el_cliente_de_embeddings_se_crea_una_sola_vez(monkeypatch: pytest.MonkeyPatch) -> None:
-    proyecto = ProyectoFalso()
+def test_el_cliente_de_embeddings_se_crea_una_sola_vez(
+    monkeypatch: pytest.MonkeyPatch, alcances_pedidos: list[str]
+) -> None:
     monkeypatch.setattr(generador_module, "crear_credencial", lambda: object())
-    monkeypatch.setattr(generador_module, "crear_cliente_proyecto", lambda settings, credencial: proyecto)
+    monkeypatch.setattr(generador_module, "crear_cliente_proyecto", lambda settings, credencial: ProyectoFalso())
     monkeypatch.setattr(generador_module, "obtener_cliente_openai", lambda p: p.get_openai_client())
     generador = FoundryGenerador(SETTINGS)
 
@@ -209,7 +225,7 @@ def test_el_cliente_de_embeddings_se_crea_una_sola_vez(monkeypatch: pytest.Monke
     segundo, _ = generador.obtener_cliente_embeddings()
 
     assert primero is segundo
-    assert [p for p in proyecto.pedidos if "base_url" in p] == [{"base_url": "https://x.services.ai.azure.com/openai/v1"}]
+    assert len(alcances_pedidos) == 1
 
 
 def test_el_cliente_de_embeddings_sin_configuracion_lanza_foundry_no_configurado(monkeypatch: pytest.MonkeyPatch) -> None:

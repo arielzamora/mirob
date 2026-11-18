@@ -25,6 +25,18 @@ TIMEOUT_SEGUNDOS = 30.0
 logger = logging.getLogger(__name__)
 
 
+def _detalle_seguro(error: Exception) -> str:
+    """Lo que se puede loguear de un error de Azure sin riesgo: tipo, estado HTTP y código de error (no el mensaje)."""
+    partes = [type(error).__name__]
+    estado = getattr(error, "status_code", None)
+    codigo = getattr(error, "code", None)
+    if isinstance(estado, int):
+        partes.append(f"estado={estado}")
+    if isinstance(codigo, str) and codigo:
+        partes.append(f"codigo={codigo[:60]}")
+    return " ".join(partes)
+
+
 class FoundryEmbeddings:
     """Genera embeddings con el deployment `FOUNDRY_EMBEDDINGS_DEPLOYMENT`, en lotes."""
 
@@ -75,8 +87,9 @@ class FoundryEmbeddings:
         except FoundryError:
             raise
         except (AzureError, OpenAIError) as error:
-            # Se loguea el TIPO de error, nunca los textos: podrían tener datos personales.
-            logger.error("Falló la llamada a embeddings: %s", type(error).__name__)
+            # Se loguea el tipo, el estado HTTP y el código de error de Azure (por ejemplo PermissionDenied), nunca los
+            # textos ni el mensaje completo: podrían tener datos personales.
+            logger.error("Falló la llamada a embeddings: %s", _detalle_seguro(error))
             raise FoundryError("No se pudieron calcular los embeddings.") from error
         latencia_ms = (time.perf_counter() - inicio) * 1000
 
